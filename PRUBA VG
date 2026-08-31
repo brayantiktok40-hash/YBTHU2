@@ -428,7 +428,7 @@ end
 -- PANEL DE TELEPORT (TAMAÑOS MÁS GRANDES)
 -- ============================================
 function cargarTeleport()
-    print("✅ PRUBA VG: cargando GUI YBTHU en Real")
+    print("✅ PRUBA VG: cargando GUI Buacciaratichan en Real")
 
     if guiPrincipal then
         guiPrincipal:Destroy()
@@ -459,7 +459,7 @@ function cargarTeleport()
     titulo.Size = UDim2.new(1, -45, 0, 45)
     titulo.Position = UDim2.new(0, 10, 0, 5)
     titulo.BackgroundTransparency = 1
-    titulo.Text = "🔥 YBTHU"
+    titulo.Text = "🔥 Buacciaratichan"
     titulo.TextColor3 = Color3.fromRGB(255, 200, 0)
     titulo.TextSize = 22
     titulo.Font = Enum.Font.GothamBold
