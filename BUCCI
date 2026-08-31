@@ -197,11 +197,25 @@ local function mostrarClaveUI()
     cred.Size = UDim2.new(1, 0, 0, 20)
     cred.Position = UDim2.new(0, 0, 0, 40)
     cred.BackgroundTransparency = 1
-    cred.Text = "✨ Bucci ✨"
-    cred.TextColor3 = Color3.fromRGB(255, 200, 0)
+    cred.Text = "✨ Bucciaratichan ✨"
+    cred.TextColor3 = Color3.fromRGB(255, 0, 0)
     cred.TextSize = 12
     cred.Font = Enum.Font.GothamBold
     cred.Parent = f
+
+    task.spawn(function()
+        local coloresRGB = {
+            Color3.fromRGB(255, 0, 0), -- Rojo
+            Color3.fromRGB(0, 120, 255), -- Azul
+            Color3.fromRGB(0, 255, 0), -- Verde
+        }
+        local indice = 1
+        while cred and cred.Parent do
+            cred.TextColor3 = coloresRGB[indice]
+            indice = indice % #coloresRGB + 1
+            task.wait(0.8)
+        end
+    end)
 
     local linea = Instance.new("Frame")
     linea.Size = UDim2.new(0.85, 0, 0, 2)
