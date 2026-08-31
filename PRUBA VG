@@ -1,5 +1,5 @@
 -- ============================================
--- TELEPORT PRO - @fidel.pedraza11
+-- TELEPORT PRO - Bucci
 -- CON SISTEMA DE CLAVES + SELECCIÓN DE DISPOSITIVO + CAMBIO RÁPIDO
 -- MOVIBLE - SIN RECORTE - PANELES MÁS GRANDES
 -- ============================================
@@ -151,6 +151,22 @@ end
 -- ============================================
 -- PANEL DE CLAVE (DISEÑO MEJORADO)
 -- ============================================
+local DISCORD_URL = "https://discord.gg/b9mvbR6rq"
+
+local function abrirDiscord()
+    local abierto = false
+    pcall(function()
+        local guiService = game:GetService("GuiService")
+        if guiService.OpenBrowserWindow then
+            guiService:OpenBrowserWindow(DISCORD_URL)
+            abierto = true
+        end
+    end)
+    if not abierto and type(setclipboard) == "function" then
+        pcall(setclipboard, DISCORD_URL)
+    end
+end
+
 local function mostrarClaveUI()
     local gui = crearScreenGui("PRUBA_VG_KeyUI")
     if not gui then return end
@@ -181,7 +197,7 @@ local function mostrarClaveUI()
     cred.Size = UDim2.new(1, 0, 0, 20)
     cred.Position = UDim2.new(0, 0, 0, 40)
     cred.BackgroundTransparency = 1
-    cred.Text = "✨ @fidel.pedraza11 ✨"
+    cred.Text = "✨ Bucci ✨"
     cred.TextColor3 = Color3.fromRGB(255, 200, 0)
     cred.TextSize = 12
     cred.Font = Enum.Font.GothamBold
@@ -301,6 +317,7 @@ local function mostrarClaveUI()
             status.TextColor3 = Color3.fromRGB(0, 255, 0)
             task.wait(0.5)
             gui:Destroy()
+            abrirDiscord()
             cargarTeleport()
         else
             status.Text = "❌ Clave incorrecta"
