@@ -852,8 +852,7 @@ do
 
     local function espFullDinero(objeto)
         local nombresDirectos = {
-            "Money", "Cash", "Coins", "Coin", "Dinero", "Precio", "Price",
-            "Value", "Amount", "Cantidad", "RewardAmount", "MoneyReward",
+            "Money", "Cash", "Coins", "Coin", "Dinero", "RewardAmount", "MoneyReward",
             "CashReward", "CoinReward", "Payout", "Earnings", "Ganancia"
         }
 
@@ -946,7 +945,7 @@ do
     end
 
     local function espFullCrearMarcador(objeto)
-        if espFullMarcadores[objeto] or not objeto.Parent or not espFullEsHuevo(objeto) then return end
+        if espFullMarcadores[objeto] or not objeto.Parent then return end
         local parte = espFullParte(objeto)
         if not parte then return end
 
@@ -1005,8 +1004,11 @@ do
         if ahora < espFullProximaActualizacion then return end
         espFullProximaActualizacion = ahora + espFullIntervalo
 
-        for _, objeto in ipairs(workspace:GetDescendants()) do
-            if espFullEsHuevo(objeto) then
+        for _, candidato in ipairs(workspace:GetDescendants()) do
+            if espFullEsHuevo(candidato) then
+                -- Si el huevo tiene piezas internas con nombres que también contienen
+                -- "egg", usa el modelo más cercano para crear un solo marcador.
+                local objeto = candidato:FindFirstAncestorWhichIsA("Model") or candidato
                 espFullCrearMarcador(objeto)
                 local datos = espFullMarcadores[objeto]
                 if datos and datos.texto then
@@ -1019,7 +1021,7 @@ do
         end
 
         for objeto, datos in pairs(espFullMarcadores) do
-            if not objeto.Parent or not espFullEsHuevo(objeto) then
+            if not objeto.Parent then
                 if datos.gui then datos.gui:Destroy() end
                 espFullMarcadores[objeto] = nil
             end
