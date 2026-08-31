@@ -663,7 +663,7 @@ end
 local clave = cargarClaveGuardada()
 if clave and verificarClave(clave) then
     print("✅ Clave guardada válida")
-    mostrarMenuDispositivo()
+    cargarTeleport()
 else
     mostrarClaveUI()
 end
