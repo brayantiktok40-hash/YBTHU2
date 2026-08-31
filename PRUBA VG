@@ -1,0 +1,853 @@
+-- ============================================
+-- TELEPORT PRO - @fidel.pedraza11
+-- CON SISTEMA DE CLAVES + SELECCIÓN DE DISPOSITIVO + CAMBIO RÁPIDO
+-- MOVIBLE - SIN RECORTE - PANELES MÁS GRANDES
+-- ============================================
+
+-- Arranque mínimo para Real: confirma la ejecución antes de cargar el panel completo.
+do
+    local ok, contenedor = pcall(function()
+        if type(gethui) == "function" then
+            return gethui()
+        end
+        return game:GetService("CoreGui")
+    end)
+
+    if ok and contenedor then
+        local aviso = Instance.new("ScreenGui")
+        aviso.Name = "PRUBA_VG_BOOT"
+        aviso.ResetOnSpawn = false
+        aviso.IgnoreGuiInset = true
+        aviso.DisplayOrder = 1000000
+        aviso.Parent = contenedor
+
+        local texto = Instance.new("TextLabel")
+        texto.Size = UDim2.new(0, 300, 0, 44)
+        texto.Position = UDim2.new(0.5, -150, 0, 25)
+        texto.BackgroundColor3 = Color3.fromRGB(10, 10, 25)
+        texto.BorderSizePixel = 2
+        texto.BorderColor3 = Color3.fromRGB(255, 200, 0)
+        texto.TextColor3 = Color3.fromRGB(255, 255, 255)
+        texto.TextSize = 16
+        texto.Font = Enum.Font.GothamBold
+        texto.Text = "✅ PRUBA VG ejecutado en Real"
+        texto.Parent = aviso
+
+        task.delay(3, function()
+            if aviso and aviso.Parent then aviso:Destroy() end
+        end)
+    else
+        warn("PRUBA VG: Real no permitió crear la GUI de arranque")
+    end
+end
+
+print("🔐 Cargando Teleport Pro con sistema de claves...")
+
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+if not player then
+    warn("PRUBA VG: ejecuta el script dentro de una partida en Real")
+    return
+end
+
+local posicionFijada = nil
+local dispositivoSeleccionado = "Celular"
+local guiPrincipal = nil
+local ctrlConexion = nil
+
+-- ============================================
+-- CONFIGURACIÓN (¡CON TU CLAVE!)
+-- ============================================
+local CONFIG = {
+    LinkvertiseURL = "https://link-center.net/8782622/cKHaA02rpGsu",
+    ClavesValidas = {
+        "Key-675665",
+        "Key-teleport-v1",
+        "Key-teleport-v2",
+    },
+}
+
+local function obtenerContenedorGUI()
+    if type(gethui) == "function" then
+        local ok, hui = pcall(gethui)
+        if ok and hui then return hui end
+    end
+
+    local okCore, coreGui = pcall(function()
+        return game:GetService("CoreGui")
+    end)
+    if okCore and coreGui then return coreGui end
+
+    local playerGui = player:FindFirstChildOfClass("PlayerGui")
+    if playerGui then return playerGui end
+
+    local okPlayer, resultado = pcall(function()
+        return player:WaitForChild("PlayerGui", 10)
+    end)
+    if okPlayer then return resultado end
+    return nil
+end
+
+local function crearScreenGui(nombre)
+    local contenedor = obtenerContenedorGUI()
+    if not contenedor then
+        warn("PRUBA VG: Real no encontró un contenedor de GUI")
+        return nil
+    end
+
+    local ok, gui = pcall(function()
+        local anterior = contenedor:FindFirstChild(nombre)
+        if anterior then anterior:Destroy() end
+
+        local instancia = Instance.new("ScreenGui")
+        instancia.Name = nombre
+        instancia.ResetOnSpawn = false
+        instancia.IgnoreGuiInset = true
+        instancia.ZIndexBehavior = Enum.ZIndexBehavior.Global
+        instancia.DisplayOrder = 999999
+        instancia.Enabled = true
+        instancia.Parent = contenedor
+        return instancia
+    end)
+    if not ok or not gui then
+        warn("PRUBA VG: Real no pudo crear la GUI")
+        return nil
+    end
+    return gui
+end
+
+-- ============================================
+-- FUNCIONES DE CLAVE
+-- ============================================
+local function guardarClave(clave)
+    if writefile and isfolder and makefolder then
+        if not isfolder("TeleportPro") then makefolder("TeleportPro") end
+        pcall(function() writefile("TeleportPro/Key.txt", clave) end)
+    end
+end
+
+local function cargarClaveGuardada()
+    if isfile and isfile("TeleportPro/Key.txt") then
+        return readfile("TeleportPro/Key.txt")
+    end
+    return nil
+end
+
+local function verificarClave(clave)
+    for _, valida in ipairs(CONFIG.ClavesValidas) do
+        if clave == valida then return true end
+    end
+    return false
+end
+
+-- ============================================
+-- PANEL DE CLAVE (DISEÑO MEJORADO)
+-- ============================================
+local function mostrarClaveUI()
+    local gui = crearScreenGui("PRUBA_VG_KeyUI")
+    if not gui then return end
+
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(0, 320, 0, 260)
+    f.Position = UDim2.new(0.5, -160, 0.5, -130)
+    f.BackgroundColor3 = Color3.fromRGB(10, 10, 25)
+    f.BorderSizePixel = 2
+    f.BorderColor3 = Color3.fromRGB(255, 200, 0)
+    f.Parent = gui
+    f.Active = true
+
+    local e = Instance.new("UICorner")
+    e.CornerRadius = UDim.new(0, 12)
+    e.Parent = f
+
+    local t = Instance.new("TextLabel")
+    t.Size = UDim2.new(1, 0, 0, 35)
+    t.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+    t.Text = "🔑 CLAVE DE ACCESO"
+    t.TextColor3 = Color3.fromRGB(255, 255, 255)
+    t.TextSize = 15
+    t.Font = Enum.Font.GothamBold
+    t.Parent = f
+
+    local cred = Instance.new("TextLabel")
+    cred.Size = UDim2.new(1, 0, 0, 20)
+    cred.Position = UDim2.new(0, 0, 0, 40)
+    cred.BackgroundTransparency = 1
+    cred.Text = "✨ @fidel.pedraza11 ✨"
+    cred.TextColor3 = Color3.fromRGB(255, 200, 0)
+    cred.TextSize = 12
+    cred.Font = Enum.Font.GothamBold
+    cred.Parent = f
+
+    local linea = Instance.new("Frame")
+    linea.Size = UDim2.new(0.85, 0, 0, 2)
+    linea.Position = UDim2.new(0.075, 0, 0, 65)
+    linea.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+    linea.BackgroundTransparency = 0.5
+    linea.Parent = f
+
+    local l = Instance.new("TextLabel")
+    l.Size = UDim2.new(0.9, 0, 0, 20)
+    l.Position = UDim2.new(0.05, 0, 0, 75)
+    l.BackgroundTransparency = 1
+    l.Text = "📢 Obtén tu clave en:"
+    l.TextColor3 = Color3.fromRGB(200, 200, 200)
+    l.TextSize = 11
+    l.Font = Enum.Font.Gotham
+    l.Parent = f
+
+    local btnLink = Instance.new("TextButton")
+    btnLink.Size = UDim2.new(0.8, 0, 0, 30)
+    btnLink.Position = UDim2.new(0.1, 0, 0, 98)
+    btnLink.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+    btnLink.BorderSizePixel = 0
+    btnLink.Text = "🔗 OBTENER CLAVE"
+    btnLink.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btnLink.TextSize = 13
+    btnLink.Font = Enum.Font.GothamBold
+    btnLink.Parent = f
+
+    local btnEsq = Instance.new("UICorner")
+    btnEsq.CornerRadius = UDim.new(0, 8)
+    btnEsq.Parent = btnLink
+
+    btnLink.MouseButton1Click:Connect(function()
+        if setclipboard then
+            setclipboard(CONFIG.LinkvertiseURL)
+            btnLink.Text = "✅ ENLACE COPIADO"
+            btnLink.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+            task.wait(1.5)
+            btnLink.Text = "🔗 OBTENER CLAVE"
+            btnLink.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+        else
+            btnLink.Text = "📋 " .. CONFIG.LinkvertiseURL
+            btnLink.BackgroundColor3 = Color3.fromRGB(200, 100, 0)
+        end
+    end)
+
+    local input = Instance.new("TextBox")
+    input.Size = UDim2.new(0.8, 0, 0, 35)
+    input.Position = UDim2.new(0.1, 0, 0, 138)
+    input.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
+    input.BorderSizePixel = 1
+    input.BorderColor3 = Color3.fromRGB(255, 200, 0)
+    input.PlaceholderText = "Pega tu clave aquí..."
+    input.TextColor3 = Color3.fromRGB(255, 255, 255)
+    input.Font = Enum.Font.Gotham
+    input.TextSize = 13
+    input.Parent = f
+
+    local inputEsq = Instance.new("UICorner")
+    inputEsq.CornerRadius = UDim.new(0, 6)
+    inputEsq.Parent = input
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.8, 0, 0, 35)
+    btn.Position = UDim2.new(0.1, 0, 0, 183)
+    btn.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+    btn.BorderSizePixel = 0
+    btn.Text = "✅ VERIFICAR"
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 14
+    btn.Font = Enum.Font.GothamBold
+    btn.Parent = f
+
+    local btnVerEsq = Instance.new("UICorner")
+    btnVerEsq.CornerRadius = UDim.new(0, 8)
+    btnVerEsq.Parent = btn
+
+    local status = Instance.new("TextLabel")
+    status.Size = UDim2.new(0.9, 0, 0, 20)
+    status.Position = UDim2.new(0.05, 0, 0, 225)
+    status.BackgroundTransparency = 1
+    status.Text = ""
+    status.TextColor3 = Color3.fromRGB(255, 200, 0)
+    status.TextSize = 12
+    status.Font = Enum.Font.Gotham
+    status.Parent = f
+
+    -- ARRASTRE (Movible)
+    local dragging = false
+    local ds = nil
+    local sp = nil
+    f.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            ds = i.Position
+            sp = f.Position
+        end
+    end)
+    f.InputChanged:Connect(function(i)
+        if dragging and i.UserInputType == Enum.UserInputType.Touch then
+            local d = i.Position - ds
+            f.Position = UDim2.new(sp.X.Scale, sp.X.Offset + d.X, sp.Y.Scale, sp.Y.Offset + d.Y)
+        end
+    end)
+    f.InputEnded:Connect(function() dragging = false end)
+
+    btn.MouseButton1Click:Connect(function()
+        local clave = input.Text
+        if verificarClave(clave) then
+            guardarClave(clave)
+            status.Text = "✅ ¡Clave correcta!"
+            status.TextColor3 = Color3.fromRGB(0, 255, 0)
+            task.wait(0.5)
+            gui:Destroy()
+            mostrarMenuDispositivo()
+        else
+            status.Text = "❌ Clave incorrecta"
+            status.TextColor3 = Color3.fromRGB(255, 0, 0)
+            input.Text = ""
+        end
+    end)
+end
+
+-- ============================================
+-- MENÚ DE SELECCIÓN DE DISPOSITIVO
+-- ============================================
+local function mostrarMenuDispositivo()
+    local gui = crearScreenGui("PRUBA_VG_DeviceUI")
+    if not gui then return end
+
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(0, 300, 0, 240)
+    f.Position = UDim2.new(0.5, -150, 0.5, -120)
+    f.BackgroundColor3 = Color3.fromRGB(10, 10, 25)
+    f.BorderSizePixel = 2
+    f.BorderColor3 = Color3.fromRGB(0, 200, 255)
+    f.Parent = gui
+    f.Active = true
+
+    local e = Instance.new("UICorner")
+    e.CornerRadius = UDim.new(0, 12)
+    e.Parent = f
+
+    local t = Instance.new("TextLabel")
+    t.Size = UDim2.new(1, 0, 0, 35)
+    t.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+    t.Text = "📱 SELECCIONA DISPOSITIVO"
+    t.TextColor3 = Color3.fromRGB(255, 255, 255)
+    t.TextSize = 14
+    t.Font = Enum.Font.GothamBold
+    t.Parent = f
+
+    local cred = Instance.new("TextLabel")
+    cred.Size = UDim2.new(1, 0, 0, 20)
+    cred.Position = UDim2.new(0, 0, 0, 40)
+    cred.BackgroundTransparency = 1
+    cred.Text = "@fidel.pedraza11"
+    cred.TextColor3 = Color3.fromRGB(255, 200, 0)
+    cred.TextSize = 11
+    cred.Font = Enum.Font.Gotham
+    cred.Parent = f
+
+    -- Botón Celular
+    local btnCelular = Instance.new("TextButton")
+    btnCelular.Size = UDim2.new(0.85, 0, 0, 38)
+    btnCelular.Position = UDim2.new(0.075, 0, 0, 72)
+    btnCelular.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+    btnCelular.BorderSizePixel = 0
+    btnCelular.Text = "📱 CELULAR (Original)"
+    btnCelular.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btnCelular.TextSize = 13
+    btnCelular.Font = Enum.Font.GothamBold
+    btnCelular.Parent = f
+
+    local btnEsq1 = Instance.new("UICorner")
+    btnEsq1.CornerRadius = UDim.new(0, 8)
+    btnEsq1.Parent = btnCelular
+
+    btnCelular.MouseButton1Click:Connect(function()
+        dispositivoSeleccionado = "Celular"
+        gui:Destroy()
+        cargarTeleport()
+    end)
+
+    -- Botón Tablet
+    local btnTablet = Instance.new("TextButton")
+    btnTablet.Size = UDim2.new(0.85, 0, 0, 38)
+    btnTablet.Position = UDim2.new(0.075, 0, 0, 118)
+    btnTablet.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+    btnTablet.BorderSizePixel = 0
+    btnTablet.Text = "📱 TABLET (Más grande)"
+    btnTablet.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btnTablet.TextSize = 13
+    btnTablet.Font = Enum.Font.GothamBold
+    btnTablet.Parent = f
+
+    local btnEsq2 = Instance.new("UICorner")
+    btnEsq2.CornerRadius = UDim.new(0, 8)
+    btnEsq2.Parent = btnTablet
+
+    btnTablet.MouseButton1Click:Connect(function()
+        dispositivoSeleccionado = "Tablet"
+        gui:Destroy()
+        cargarTeleport()
+    end)
+
+    -- Botón PC
+    local btnPC = Instance.new("TextButton")
+    btnPC.Size = UDim2.new(0.85, 0, 0, 38)
+    btnPC.Position = UDim2.new(0.075, 0, 0, 164)
+    btnPC.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+    btnPC.BorderSizePixel = 0
+    btnPC.Text = "🖥️ PC (Ancho y grande)"
+    btnPC.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btnPC.TextSize = 13
+    btnPC.Font = Enum.Font.GothamBold
+    btnPC.Parent = f
+
+    local btnEsq3 = Instance.new("UICorner")
+    btnEsq3.CornerRadius = UDim.new(0, 8)
+    btnEsq3.Parent = btnPC
+
+    btnPC.MouseButton1Click:Connect(function()
+        dispositivoSeleccionado = "PC"
+        gui:Destroy()
+        cargarTeleport()
+    end)
+
+    -- ARRASTRE (Movible)
+    local dragging = false
+    local ds = nil
+    local sp = nil
+    f.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            ds = i.Position
+            sp = f.Position
+        end
+    end)
+    f.InputChanged:Connect(function(i)
+        if dragging and i.UserInputType == Enum.UserInputType.Touch then
+            local d = i.Position - ds
+            f.Position = UDim2.new(sp.X.Scale, sp.X.Offset + d.X, sp.Y.Scale, sp.Y.Offset + d.Y)
+        end
+    end)
+    f.InputEnded:Connect(function() dragging = false end)
+end
+
+-- ============================================
+-- PANEL DE TELEPORT (TAMAÑOS MÁS GRANDES)
+-- ============================================
+function cargarTeleport()
+    print("✅ Dispositivo seleccionado: " .. dispositivoSeleccionado)
+
+    local tamanos = {
+        Celular = { ancho = 200, alto = 230, texto = "📍 TELEPORT" },
+        Tablet = { ancho = 260, alto = 270, texto = "📍 TELEPORT (Tablet)" },
+        PC = { ancho = 350, alto = 320, texto = "📍 TELEPORT (PC)" },
+    }
+
+    local tam = tamanos[dispositivoSeleccionado] or tamanos.Celular
+
+    if guiPrincipal then
+        guiPrincipal:Destroy()
+        guiPrincipal = nil
+    end
+    if ctrlConexion then
+        pcall(function() ctrlConexion:Disconnect() end)
+        ctrlConexion = nil
+    end
+
+    guiPrincipal = crearScreenGui("PRUBA_VG_MainUI")
+    if not guiPrincipal then return end
+
+    ctrlConexion = game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if input.KeyCode == Enum.KeyCode.LeftControl and guiPrincipal then
+            guiPrincipal.Enabled = not guiPrincipal.Enabled
+        end
+    end)
+
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(0, tam.ancho, 0, tam.alto)
+    f.Position = UDim2.new(0.5, -tam.ancho/2, 0.5, -tam.alto/2)
+    f.BackgroundColor3 = Color3.fromRGB(10, 10, 25)
+    f.BorderSizePixel = 2
+    f.BorderColor3 = Color3.fromRGB(0, 200, 255)
+    f.Parent = guiPrincipal
+    f.Active = true
+    f.Draggable = false
+
+    local e = Instance.new("UICorner")
+    e.CornerRadius = UDim.new(0, 12)
+    e.Parent = f
+
+    -- Barra de título
+    local barra = Instance.new("Frame")
+    barra.Size = UDim2.new(1, 0, 0, 35)
+    barra.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+    barra.Parent = f
+
+    local barraEsq = Instance.new("UICorner")
+    barraEsq.CornerRadius = UDim.new(0, 12)
+    barraEsq.Parent = barra
+
+    local titulo = Instance.new("TextLabel")
+    titulo.Size = UDim2.new(1, -40, 1, 0)
+    titulo.Position = UDim2.new(0, 12, 0, 0)
+    titulo.BackgroundTransparency = 1
+    titulo.Text = tam.texto
+    titulo.TextColor3 = Color3.fromRGB(255, 255, 255)
+    titulo.TextSize = (dispositivoSeleccionado == "PC" and 18) or (dispositivoSeleccionado == "Tablet" and 15) or 13
+    titulo.TextXAlignment = Enum.TextXAlignment.Left
+    titulo.Font = Enum.Font.GothamBold
+    titulo.Parent = barra
+
+    -- Botón cerrar
+    local cerrar = Instance.new("TextButton")
+    cerrar.Size = UDim2.new(0, 28, 0, 28)
+    cerrar.Position = UDim2.new(1, -34, 0.5, -14)
+    cerrar.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+    cerrar.BorderSizePixel = 0
+    cerrar.Text = "✕"
+    cerrar.TextColor3 = Color3.fromRGB(255, 255, 255)
+    cerrar.TextSize = 14
+    cerrar.Font = Enum.Font.GothamBold
+    cerrar.Parent = barra
+
+    local cerrarEsq = Instance.new("UICorner")
+    cerrarEsq.CornerRadius = UDim.new(1, 0)
+    cerrarEsq.Parent = cerrar
+
+    cerrar.MouseButton1Click:Connect(function()
+        if guiPrincipal then
+            guiPrincipal:Destroy()
+            guiPrincipal = nil
+        end
+    end)
+
+    -- Línea decorativa
+    local linea = Instance.new("Frame")
+    linea.Size = UDim2.new(0.85, 0, 0, 2)
+    linea.Position = UDim2.new(0.075, 0, 0, 43)
+    linea.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
+    linea.BackgroundTransparency = 0.5
+    linea.Parent = f
+
+    -- Label de posición
+    local label = Instance.new("TextLabel")
+    local labelAlto = (dispositivoSeleccionado == "PC" and 38) or (dispositivoSeleccionado == "Tablet" and 32) or 28
+    label.Size = UDim2.new(0.85, 0, 0, labelAlto)
+    label.Position = UDim2.new(0.075, 0, 0, 53)
+    label.BackgroundColor3 = Color3.fromRGB(20, 20, 45)
+    label.BorderSizePixel = 1
+    label.BorderColor3 = Color3.fromRGB(255, 200, 0)
+    label.Text = "📍 SIN POSICIÓN"
+    label.TextColor3 = Color3.fromRGB(255, 200, 0)
+    label.TextSize = (dispositivoSeleccionado == "PC" and 15) or (dispositivoSeleccionado == "Tablet" and 13) or 11
+    label.Font = Enum.Font.GothamBold
+    label.Parent = f
+
+    local labelEsq = Instance.new("UICorner")
+    labelEsq.CornerRadius = UDim.new(0, 6)
+    labelEsq.Parent = label
+
+    -- Botón Fijar
+    local btnF = Instance.new("TextButton")
+    local btnAlto = (dispositivoSeleccionado == "PC" and 44) or (dispositivoSeleccionado == "Tablet" and 40) or 34
+    btnF.Size = UDim2.new(0.85, 0, 0, btnAlto)
+    local yPos = (dispositivoSeleccionado == "PC" and 100) or (dispositivoSeleccionado == "Tablet" and 94) or 88
+    btnF.Position = UDim2.new(0.075, 0, 0, yPos)
+    btnF.BackgroundColor3 = Color3.fromRGB(0, 200, 80)
+    btnF.BorderSizePixel = 0
+    btnF.Text = "📍 FIJAR"
+    btnF.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btnF.TextSize = (dispositivoSeleccionado == "PC" and 17) or (dispositivoSeleccionado == "Tablet" and 15) or 13
+    btnF.Font = Enum.Font.GothamBold
+    btnF.Parent = f
+
+    local btnEsq1 = Instance.new("UICorner")
+    btnEsq1.CornerRadius = UDim.new(0, 8)
+    btnEsq1.Parent = btnF
+
+    btnF.MouseButton1Click:Connect(function()
+        local char = player.Character
+        if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+
+        posicionFijada = root.Position
+        label.Text = "📍 X:" .. math.floor(posicionFijada.X) .. " Y:" .. math.floor(posicionFijada.Y)
+        label.TextColor3 = Color3.fromRGB(0, 255, 100)
+        label.BorderColor3 = Color3.fromRGB(0, 255, 100)
+
+        btnF.Text = "✅ FIJADO"
+        btnF.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+        task.wait(0.4)
+        btnF.Text = "📍 FIJAR"
+        btnF.BackgroundColor3 = Color3.fromRGB(0, 200, 80)
+    end)
+
+    -- Botón Teleport
+    local btnT = Instance.new("TextButton")
+    btnT.Size = UDim2.new(0.85, 0, 0, btnAlto)
+    yPos = (dispositivoSeleccionado == "PC" and 152) or (dispositivoSeleccionado == "Tablet" and 142) or 130
+    btnT.Position = UDim2.new(0.075, 0, 0, yPos)
+    btnT.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+    btnT.BorderSizePixel = 0
+    btnT.Text = "🌀 TELEPORT"
+    btnT.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btnT.TextSize = (dispositivoSeleccionado == "PC" and 17) or (dispositivoSeleccionado == "Tablet" and 15) or 13
+    btnT.Font = Enum.Font.GothamBold
+    btnT.Parent = f
+
+    local btnEsq2 = Instance.new("UICorner")
+    btnEsq2.CornerRadius = UDim.new(0, 8)
+    btnEsq2.Parent = btnT
+
+    btnT.MouseButton1Click:Connect(function()
+        if not posicionFijada then
+            btnT.Text = "❌ SIN POS"
+            btnT.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+            task.wait(0.4)
+            btnT.Text = "🌀 TELEPORT"
+            btnT.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+            return
+        end
+
+        local char = player.Character
+        if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+
+        root.CFrame = CFrame.new(posicionFijada)
+
+        btnT.Text = "✅ TELEPORT"
+        btnT.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+        task.wait(0.4)
+        btnT.Text = "🌀 TELEPORT"
+        btnT.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+    end)
+
+    -- Botón Reset
+    local btnR = Instance.new("TextButton")
+    local btnAltoR = (dispositivoSeleccionado == "PC" and 38) or (dispositivoSeleccionado == "Tablet" and 34) or 28
+    btnR.Size = UDim2.new(0.85, 0, 0, btnAltoR)
+    yPos = (dispositivoSeleccionado == "PC" and 204) or (dispositivoSeleccionado == "Tablet" and 190) or 172
+    btnR.Position = UDim2.new(0.075, 0, 0, yPos)
+    btnR.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+    btnR.BorderSizePixel = 0
+    btnR.Text = "🔄 RESET"
+    btnR.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btnR.TextSize = (dispositivoSeleccionado == "PC" and 15) or (dispositivoSeleccionado == "Tablet" and 13) or 11
+    btnR.Font = Enum.Font.GothamBold
+    btnR.Parent = f
+
+    local btnEsq3 = Instance.new("UICorner")
+    btnEsq3.CornerRadius = UDim.new(0, 8)
+    btnEsq3.Parent = btnR
+
+    btnR.MouseButton1Click:Connect(function()
+        posicionFijada = nil
+        label.Text = "📍 SIN POSICIÓN"
+        label.TextColor3 = Color3.fromRGB(255, 200, 0)
+        label.BorderColor3 = Color3.fromRGB(255, 200, 0)
+
+        btnR.Text = "✅ RESET"
+        btnR.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+        task.wait(0.4)
+        btnR.Text = "🔄 RESET"
+        btnR.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+    end)
+
+    -- Créditos
+    local creditos = Instance.new("TextLabel")
+    local credY = (dispositivoSeleccionado == "PC" and 258) or (dispositivoSeleccionado == "Tablet" and 240) or 210
+    creditos.Size = UDim2.new(1, 0, 0, 20)
+    creditos.Position = UDim2.new(0, 0, 0, credY)
+    creditos.BackgroundTransparency = 1
+    creditos.Text = "✨ @fidel.pedraza11 ✨"
+    creditos.TextColor3 = Color3.fromRGB(255, 200, 0)
+    creditos.TextSize = (dispositivoSeleccionado == "PC" and 15) or (dispositivoSeleccionado == "Tablet" and 13) or 11
+    creditos.Font = Enum.Font.GothamBold
+    creditos.Parent = f
+
+    -- Botón Cambiar Dispositivo (Azul)
+    local btnCambiar = Instance.new("TextButton")
+    btnCambiar.Size = UDim2.new(0, 34, 0, 34)
+    btnCambiar.Position = UDim2.new(1, -40, 0, 6)
+    btnCambiar.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+    btnCambiar.BorderSizePixel = 0
+    btnCambiar.Text = "📱"
+    btnCambiar.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btnCambiar.TextSize = 15
+    btnCambiar.Font = Enum.Font.GothamBold
+    btnCambiar.Parent = f
+
+    local btnCambiarEsq = Instance.new("UICorner")
+    btnCambiarEsq.CornerRadius = UDim.new(1, 0)
+    btnCambiarEsq.Parent = btnCambiar
+
+    btnCambiar.MouseEnter:Connect(function()
+        btnCambiar.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+    end)
+    btnCambiar.MouseLeave:Connect(function()
+        btnCambiar.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+    end)
+
+    btnCambiar.MouseButton1Click:Connect(function()
+        local posActual = posicionFijada
+        
+        if guiPrincipal then
+            guiPrincipal:Destroy()
+            guiPrincipal = nil
+        end
+        
+        local function mostrarMenuCambio()
+            local gui = Instance.new("ScreenGui")
+            gui.Parent = player:WaitForChild("PlayerGui")
+            gui.ResetOnSpawn = false
+
+            local f = Instance.new("Frame")
+            f.Size = UDim2.new(0, 300, 0, 240)
+            f.Position = UDim2.new(0.5, -150, 0.5, -120)
+            f.BackgroundColor3 = Color3.fromRGB(10, 10, 25)
+            f.BorderSizePixel = 2
+            f.BorderColor3 = Color3.fromRGB(0, 200, 255)
+            f.Parent = gui
+            f.Active = true
+
+            local e = Instance.new("UICorner")
+            e.CornerRadius = UDim.new(0, 12)
+            e.Parent = f
+
+            local t = Instance.new("TextLabel")
+            t.Size = UDim2.new(1, 0, 0, 35)
+            t.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+            t.Text = "📱 CAMBIAR DISPOSITIVO"
+            t.TextColor3 = Color3.fromRGB(255, 255, 255)
+            t.TextSize = 14
+            t.Font = Enum.Font.GothamBold
+            t.Parent = f
+
+            local cred = Instance.new("TextLabel")
+            cred.Size = UDim2.new(1, 0, 0, 20)
+            cred.Position = UDim2.new(0, 0, 0, 40)
+            cred.BackgroundTransparency = 1
+            cred.Text = "📌 Selecciona tu nuevo dispositivo"
+            cred.TextColor3 = Color3.fromRGB(200, 200, 200)
+            cred.TextSize = 11
+            cred.Font = Enum.Font.Gotham
+            cred.Parent = f
+
+            local btnCel = Instance.new("TextButton")
+            btnCel.Size = UDim2.new(0.85, 0, 0, 38)
+            btnCel.Position = UDim2.new(0.075, 0, 0, 72)
+            btnCel.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+            btnCel.BorderSizePixel = 0
+            btnCel.Text = "📱 CELULAR"
+            btnCel.TextColor3 = Color3.fromRGB(255, 255, 255)
+            btnCel.TextSize = 13
+            btnCel.Font = Enum.Font.GothamBold
+            btnCel.Parent = f
+
+            local btnEsq1 = Instance.new("UICorner")
+            btnEsq1.CornerRadius = UDim.new(0, 8)
+            btnEsq1.Parent = btnCel
+
+            btnCel.MouseButton1Click:Connect(function()
+                dispositivoSeleccionado = "Celular"
+                posicionFijada = posActual
+                gui:Destroy()
+                cargarTeleport()
+            end)
+
+            local btnTab = Instance.new("TextButton")
+            btnTab.Size = UDim2.new(0.85, 0, 0, 38)
+            btnTab.Position = UDim2.new(0.075, 0, 0, 118)
+            btnTab.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+            btnTab.BorderSizePixel = 0
+            btnTab.Text = "📱 TABLET"
+            btnTab.TextColor3 = Color3.fromRGB(255, 255, 255)
+            btnTab.TextSize = 13
+            btnTab.Font = Enum.Font.GothamBold
+            btnTab.Parent = f
+
+            local btnEsq2 = Instance.new("UICorner")
+            btnEsq2.CornerRadius = UDim.new(0, 8)
+            btnEsq2.Parent = btnTab
+
+            btnTab.MouseButton1Click:Connect(function()
+                dispositivoSeleccionado = "Tablet"
+                posicionFijada = posActual
+                gui:Destroy()
+                cargarTeleport()
+            end)
+
+            local btnPc = Instance.new("TextButton")
+            btnPc.Size = UDim2.new(0.85, 0, 0, 38)
+            btnPc.Position = UDim2.new(0.075, 0, 0, 164)
+            btnPc.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+            btnPc.BorderSizePixel = 0
+            btnPc.Text = "🖥️ PC"
+            btnPc.TextColor3 = Color3.fromRGB(255, 255, 255)
+            btnPc.TextSize = 13
+            btnPc.Font = Enum.Font.GothamBold
+            btnPc.Parent = f
+
+            local btnEsq3 = Instance.new("UICorner")
+            btnEsq3.CornerRadius = UDim.new(0, 8)
+            btnEsq3.Parent = btnPc
+
+            btnPc.MouseButton1Click:Connect(function()
+                dispositivoSeleccionado = "PC"
+                posicionFijada = posActual
+                gui:Destroy()
+                cargarTeleport()
+            end)
+
+            -- ARRASTRE
+            local dragging = false
+            local ds = nil
+            local sp = nil
+            f.InputBegan:Connect(function(i)
+                if i.UserInputType == Enum.UserInputType.Touch then
+                    dragging = true
+                    ds = i.Position
+                    sp = f.Position
+                end
+            end)
+            f.InputChanged:Connect(function(i)
+                if dragging and i.UserInputType == Enum.UserInputType.Touch then
+                    local d = i.Position - ds
+                    f.Position = UDim2.new(sp.X.Scale, sp.X.Offset + d.X, sp.Y.Scale, sp.Y.Offset + d.Y)
+                end
+            end)
+            f.InputEnded:Connect(function() dragging = false end)
+        end
+
+        mostrarMenuCambio()
+    end)
+
+    -- ARRASTRE (Movible)
+    local dragging = false
+    local ds = nil
+    local sp = nil
+    barra.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            ds = i.Position
+            sp = f.Position
+        end
+    end)
+    barra.InputChanged:Connect(function(i)
+        if dragging and i.UserInputType == Enum.UserInputType.Touch then
+            local d = i.Position - ds
+            f.Position = UDim2.new(sp.X.Scale, sp.X.Offset + d.X, sp.Y.Scale, sp.Y.Offset + d.Y)
+        end
+    end)
+    barra.InputEnded:Connect(function() dragging = false end)
+end
+
+-- ============================================
+-- EJECUTAR
+-- ============================================
+local clave = cargarClaveGuardada()
+if clave and verificarClave(clave) then
+    print("✅ Clave guardada válida")
+    mostrarMenuDispositivo()
+else
+    mostrarClaveUI()
+end
