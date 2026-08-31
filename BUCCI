@@ -852,8 +852,12 @@ do
 
     local function espFullDinero(objeto)
         local nombresDirectos = {
-            "Money", "Cash", "Coins", "Coin", "Dinero", "RewardAmount", "MoneyReward",
-            "CashReward", "CoinReward", "Payout", "Earnings", "Ganancia"
+            -- Precio de compra/original: prioridad máxima.
+            "Price", "EggPrice", "OriginalPrice", "BuyPrice", "PurchasePrice",
+            "Cost", "Costo", "Precio", "PrecioOriginal", "PurchaseCost",
+            -- Nombres de recompensa monetaria como respaldo.
+            "Money", "Cash", "Coins", "Coin", "Dinero", "RewardAmount",
+            "MoneyReward", "CashReward", "CoinReward", "Payout", "Earnings", "Ganancia"
         }
 
         -- Busca primero en el huevo y en el modelo que lo contiene.
@@ -888,6 +892,9 @@ do
                 or string.find(nombreBajo, "cash", 1, true)
                 or string.find(nombreBajo, "coin", 1, true)
                 or string.find(nombreBajo, "dinero", 1, true)
+                or string.find(nombreBajo, "price", 1, true)
+                or string.find(nombreBajo, "precio", 1, true)
+                or string.find(nombreBajo, "cost", 1, true)
                 or string.find(nombreBajo, "payout", 1, true)
                 or string.find(nombreBajo, "earn", 1, true) then
                 local texto = dineroValido(espFullTexto(valor))
@@ -934,7 +941,10 @@ do
                     or string.find(textoBajo, "money", 1, true)
                     or string.find(textoBajo, "cash", 1, true)
                     or string.find(textoBajo, "coins", 1, true)
-                    or string.find(textoBajo, "dinero", 1, true) then
+                    or string.find(textoBajo, "dinero", 1, true)
+                    or string.find(textoBajo, "price", 1, true)
+                    or string.find(textoBajo, "precio", 1, true)
+                    or string.find(textoBajo, "cost", 1, true) then
                     local dinero = dineroValido(texto)
                     if dinero then return dinero end
                 end
@@ -980,7 +990,7 @@ do
         texto.TextSize = 13
         texto.Font = Enum.Font.GothamBold
         texto.TextWrapped = true
-        texto.Text = "🥚 " .. objeto.Name .. "\nAparece: " .. espFullRecompensa(objeto) .. "\nDinero: " .. espFullDinero(objeto)
+        texto.Text = "🥚 " .. objeto.Name .. "\nAparece: " .. espFullRecompensa(objeto) .. "\nPrecio original: " .. espFullDinero(objeto)
         texto.Parent = fondo
 
         espFullMarcadores[objeto] = {gui = marcador, texto = texto}
@@ -1015,7 +1025,7 @@ do
                     local dinero = espFullDinero(objeto)
                     datos.texto.Text = "🥚 " .. objeto.Name
                         .. "\nAparece: " .. espFullRecompensa(objeto)
-                        .. "\nDinero: " .. dinero
+                        .. "\nPrecio original: " .. dinero
                 end
             end
         end
