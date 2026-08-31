@@ -1,0 +1,251 @@
+local a,b=pcall(function()
+local c=game:GetService("Players")
+local d=game:GetService("RunService")
+local e=game:GetService("UserInputService")
+local f=c.LocalPlayer
+local g=workspace.CurrentCamera
+
+local h={
+Aimbot=true,ESP=true,Language="TR",
+AimKey=Enum.UserInputType.MouseButton2,
+MenuKey=Enum.KeyCode.Insert,
+Visible=true,FOV=500,ColorIndex=1,
+ESPColors={
+Color3.new(1,1,1),
+Color3.new(1,0,0),
+Color3.new(0,1,0),
+Color3.new(0,0,1)
+},
+ColorNames={
+TR={"BEYAZ","KIRMIZI","YESIL","MAVI"},
+EN={"WHITE","RED","GREEN","BLUE"}
+}
+}
+
+local i="https://discord.gg/b9mvbR6rq"
+
+local j={
+TR={
+Title="YBTHU",
+Aim="NISAN",
+Esp="WALLHACK",
+Color="RENK",
+Lang="DIL: TR",
+Disc="DISCORD",
+Notify="Link Kopyalandı!"
+},
+EN={
+Title="YBTHU",
+Aim="AIMBOT",
+Esp="WALLHACK",
+Color="COLOR",
+Lang="LANG: EN",
+Disc="DISCORD",
+Notify="Link Copied!"
+}
+}
+
+local k=Instance.new("ScreenGui",gethui and gethui()or game:GetService("CoreGui"))
+local l=Instance.new("Frame",k)
+
+-- CRÉDITO AL EJECUTAR
+game:GetService("StarterGui"):SetCore("SendNotification",{
+Title="YBTHU",
+Text="Creado por Brayan (YBTHU)",
+Duration=5
+})
+
+e.InputBegan:Connect(function(m,n)
+if not n and m.KeyCode==h.MenuKey then
+h.Visible=not h.Visible
+l.Visible=h.Visible
+end
+end)
+
+l.Size=UDim2.new(0,200,0,310)
+l.Position=UDim2.new(0.02,0,0.4,0)
+l.BackgroundColor3=Color3.fromRGB(12,12,16)
+l.Draggable=true
+l.Active=true
+
+Instance.new("UICorner",l).CornerRadius=UDim.new(0,10)
+
+local o=Instance.new("UIStroke",l)
+o.Color=Color3.fromRGB(255,215,0)
+o.Thickness=1.8
+
+local p=Instance.new("TextLabel",l)
+p.Size=UDim2.new(1,0,0,40)
+p.BackgroundTransparency=1
+p.Text=j[h.Language].Title
+p.TextColor3=Color3.fromRGB(255,215,0)
+p.Font=Enum.Font.GothamBold
+p.TextSize=18
+
+local q={}
+
+local function r(s,t,u,v,w,x)
+local y=Instance.new("TextButton",l)
+y.Size=UDim2.new(0.9,0,0,35)
+y.Position=UDim2.new(0.05,0,0,t)
+y.BackgroundColor3=Color3.fromRGB(35,35,40)
+y.TextColor3=Color3.new(1,1,1)
+y.Font=Enum.Font.GothamMedium
+y.TextSize=13
+
+Instance.new("UICorner",y)
+
+local function z()
+local A=j[h.Language]
+
+if w then
+y.Text=A.Lang
+
+elseif x then
+y.Text=A.Disc
+y.BackgroundColor3=Color3.fromRGB(88,101,242)
+
+elseif v then
+y.Text=A.Color..": "..h.ColorNames[h.Language][h.ColorIndex]
+y.TextColor3=h.ESPColors[h.ColorIndex]
+
+else
+y.Text=A[s]..(h[u]and": ON"or": OFF")
+y.BackgroundColor3=h[u]and Color3.fromRGB(40,120,60)or Color3.fromRGB(120,40,40)
+end
+end
+
+y.MouseButton1Click:Connect(function()
+
+if w then
+h.Language=h.Language=="TR"and"EN"or"TR"
+p.Text=j[h.Language].Title
+
+for B,C in pairs(q)do
+C.update()
+end
+
+elseif v then
+h.ColorIndex=h.ColorIndex%#h.ESPColors+1
+z()
+
+elseif x then
+if setclipboard then
+setclipboard(i)
+end
+
+game:GetService("StarterGui"):SetCore("SendNotification",{
+Title="YBTHU",
+Text=j[h.Language].Notify,
+Duration=3
+})
+
+else
+h[u]=not h[u]
+z()
+end
+end)
+
+table.insert(q,{update=z})
+z()
+end
+
+r("Aim",50,"Aimbot",false,false,false)
+r("Esp",95,"ESP",false,false,false)
+r("",140,nil,true,false,false)
+r("",185,nil,false,true,false)
+r("",240,nil,false,false,true)
+
+local D={}
+
+local function E()
+local F={}
+
+for B,G in pairs(c:GetPlayers())do
+if G~=f and G.Character then
+table.insert(F,G.Character)
+end
+end
+
+for B,H in pairs(workspace:GetChildren())do
+if H:IsA("Model")and H:FindFirstChildOfClass("Humanoid")and H~=f.Character then
+table.insert(F,H)
+end
+end
+
+D=F
+end
+
+task.spawn(function()
+while task.wait(2)do
+E()
+end
+end)
+
+d.RenderStepped:Connect(function()
+
+local I=h.ESPColors[h.ColorIndex]
+
+for B,J in pairs(D)do
+
+local K=J:FindFirstChildOfClass("Humanoid")
+
+if J.Parent and K and K.Health>0 then
+
+local L=J:FindFirstChildOfClass("Highlight")
+
+if h.ESP then
+
+if not L then
+L=Instance.new("Highlight",J)
+end
+
+L.Enabled=true
+L.FillColor=I
+L.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
+
+elseif L then
+L.Enabled=false
+end
+end
+end
+
+if h.Aimbot and e:IsMouseButtonPressed(h.AimKey)then
+
+local M=nil
+local N=h.FOV
+local O=Vector2.new(
+g.ViewportSize.X/2,
+g.ViewportSize.Y/2
+)
+
+for B,J in pairs(D)do
+
+local P=J:FindFirstChild("Head")or J:FindFirstChild("HumanoidRootPart")
+local K=J:FindFirstChildOfClass("Humanoid")
+
+if P and K and K.Health>0 then
+
+local Q,R=g:WorldToViewportPoint(P.Position)
+
+if R then
+
+local S=(Vector2.new(Q.X,Q.Y)-O).Magnitude
+
+if S<N then
+N=S
+M=P
+end
+
+end
+end
+end
+
+if M then
+g.CFrame=CFrame.new(g.CFrame.Position,M.Position)
+end
+
+end
+end)
+
+end)
