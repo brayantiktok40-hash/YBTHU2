@@ -758,3 +758,200 @@ end
 -- El panel de acceso siempre aparece al iniciar.
 -- Una clave guardada no salta la pantalla: debe validarse en este arranque.
 mostrarClaveUI()
+
+
+-- ============================================
+-- ESP FULL (MÓDULO AISLADO: SOLO HUEVOS)
+-- No modifica las funciones anteriores del script.
+-- Lee atributos/valores visibles del propio objeto del huevo.
+-- ============================================
+do
+    local espFullActivo = false
+    local espFullGui = nil
+    local espFullConexion = nil
+    local espFullMarcadores = {}
+
+    local function espFullContenedor()
+        if type(gethui) == "function" then
+            local ok, hui = pcall(gethui)
+            if ok and hui then return hui end
+        end
+        local ok, coreGui = pcall(function() return game:GetService("CoreGui") end)
+        if ok and coreGui then return coreGui end
+        return player:FindFirstChildOfClass("PlayerGui") or player:WaitForChild("PlayerGui", 10)
+    end
+
+    local function espFullTexto(valor)
+        if valor == nil then return nil end
+        local texto = tostring(valor)
+        if texto == "" then return nil end
+        return texto
+    end
+
+    local function espFullBuscar(objeto, nombres)
+        for _, nombre in ipairs(nombres) do
+            local ok, atributo = pcall(function() return objeto:GetAttribute(nombre) end)
+            if ok and atributo ~= nil then
+                return espFullTexto(atributo)
+            end
+            local hijo = objeto:FindFirstChild(nombre, true)
+            if hijo then
+                if hijo:IsA("StringValue") or hijo:IsA("NumberValue") or hijo:IsA("IntValue") or hijo:IsA("BoolValue") then
+                    return espFullTexto(hijo.Value)
+                end
+                local texto = hijo:FindFirstChildWhichIsA("TextLabel", true)
+                if texto then return espFullTexto(texto.Text) end
+            end
+        end
+        return nil
+    end
+
+    local function espFullEsHuevo(objeto)
+        local nombre = string.lower(objeto.Name or "")
+        return string.find(nombre, "egg", 1, true) ~= nil
+            or string.find(nombre, "huevo", 1, true) ~= nil
+            or string.find(nombre, "incubator", 1, true) ~= nil
+            or string.find(nombre, "incubadora", 1, true) ~= nil
+    end
+
+    local function espFullParte(objeto)
+        if objeto:IsA("BasePart") then return objeto end
+        if objeto:IsA("Model") then
+            if objeto.PrimaryPart then return objeto.PrimaryPart end
+            return objeto:FindFirstChildWhichIsA("BasePart", true)
+        end
+        return objeto:FindFirstAncestorWhichIsA("BasePart")
+    end
+
+    local function espFullRecompensa(objeto)
+        return espFullBuscar(objeto, {"Reward", "Rewards", "Contenido", "Contents", "Item", "Pet", "Mascota", "Drop", "Result", "Resultado"}) or "No definido"
+    end
+
+    local function espFullDinero(objeto)
+        return espFullBuscar(objeto, {"Money", "Cash", "Coins", "Dinero", "Precio", "Price", "Value", "Amount", "Cantidad"}) or "No definido"
+    end
+
+    local function espFullCrearMarcador(objeto)
+        if espFullMarcadores[objeto] or not objeto.Parent or not espFullEsHuevo(objeto) then return end
+        local parte = espFullParte(objeto)
+        if not parte then return end
+
+        local marcador = Instance.new("BillboardGui")
+        marcador.Name = "ESP_FULL_EggMarker"
+        marcador.Adornee = parte
+        marcador.AlwaysOnTop = true
+        marcador.Size = UDim2.new(0, 240, 0, 74)
+        marcador.StudsOffset = Vector3.new(0, 3.5, 0)
+        marcador.MaxDistance = 500
+        marcador.Parent = espFullContenedor()
+
+        local fondo = Instance.new("Frame")
+        fondo.Size = UDim2.fromScale(1, 1)
+        fondo.BackgroundColor3 = Color3.fromRGB(10, 10, 25)
+        fondo.BackgroundTransparency = 0.12
+        fondo.BorderSizePixel = 1
+        fondo.BorderColor3 = Color3.fromRGB(255, 200, 0)
+        fondo.Parent = marcador
+
+        local esquina = Instance.new("UICorner")
+        esquina.CornerRadius = UDim.new(0, 8)
+        esquina.Parent = fondo
+
+        local texto = Instance.new("TextLabel")
+        texto.Name = "ESP_FULL_Info"
+        texto.Size = UDim2.new(1, -10, 1, -8)
+        texto.Position = UDim2.new(0, 5, 0, 4)
+        texto.BackgroundTransparency = 1
+        texto.TextColor3 = Color3.fromRGB(255, 255, 255)
+        texto.TextStrokeTransparency = 0.35
+        texto.TextSize = 13
+        texto.Font = Enum.Font.GothamBold
+        texto.TextWrapped = true
+        texto.Text = "🥚 " .. objeto.Name .. "\nAparece: " .. espFullRecompensa(objeto) .. "\nDinero: $" .. espFullDinero(objeto)
+        texto.Parent = fondo
+
+        espFullMarcadores[objeto] = {gui = marcador, texto = texto}
+    end
+
+    local function espFullEliminarMarcadores()
+        for objeto, datos in pairs(espFullMarcadores) do
+            if datos.gui then pcall(function() datos.gui:Destroy() end) end
+            espFullMarcadores[objeto] = nil
+        end
+    end
+
+    local function espFullActualizar()
+        if not espFullActivo then return end
+        for _, objeto in ipairs(workspace:GetDescendants()) do
+            if espFullEsHuevo(objeto) then
+                espFullCrearMarcador(objeto)
+                local datos = espFullMarcadores[objeto]
+                if datos and datos.texto then
+                    datos.texto.Text = "🥚 " .. objeto.Name .. "\nAparece: " .. espFullRecompensa(objeto) .. "\nDinero: $" .. espFullDinero(objeto)
+                end
+            end
+        end
+        for objeto, datos in pairs(espFullMarcadores) do
+            if not objeto.Parent then
+                if datos.gui then datos.gui:Destroy() end
+                espFullMarcadores[objeto] = nil
+            end
+        end
+    end
+
+    local function espFullAlternar()
+        espFullActivo = not espFullActivo
+        if espFullActivo then
+            espFullActualizar()
+            if espFullConexion then pcall(function() espFullConexion:Disconnect() end) end
+            espFullConexion = game:GetService("RunService").Heartbeat:Connect(function()
+                espFullActualizar()
+            end)
+        else
+            if espFullConexion then pcall(function() espFullConexion:Disconnect() end) end
+            espFullConexion = nil
+            espFullEliminarMarcadores()
+        end
+    end
+
+    task.spawn(function()
+        local espera = 0
+        while not guiPrincipal and espera < 120 do
+            task.wait(0.25)
+            espera = espera + 0.25
+        end
+        if not guiPrincipal then return end
+
+        local contenedor = guiPrincipal:FindFirstChildWhichIsA("Frame")
+        if not contenedor then return end
+        local contenido = contenedor:FindFirstChildWhichIsA("Frame")
+        if not contenido then return end
+
+        local botonESP = Instance.new("TextButton")
+        botonESP.Name = "ESP_FULL_Button"
+        botonESP.Size = UDim2.new(0.9, 0, 0, 45)
+        botonESP.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+        botonESP.BorderSizePixel = 0
+        botonESP.Text = "🥚 ESP FULL: OFF"
+        botonESP.TextColor3 = Color3.fromRGB(255, 255, 255)
+        botonESP.TextSize = 15
+        botonESP.Font = Enum.Font.GothamBold
+        botonESP.LayoutOrder = 2.5
+        botonESP.Parent = contenido
+
+        local esquina = Instance.new("UICorner")
+        esquina.CornerRadius = UDim.new(0, 8)
+        esquina.Parent = botonESP
+
+        botonESP.MouseButton1Click:Connect(function()
+            espFullAlternar()
+            if espFullActivo then
+                botonESP.Text = "🥚 ESP FULL: ON"
+                botonESP.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+            else
+                botonESP.Text = "🥚 ESP FULL: OFF"
+                botonESP.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+            end
+        end)
+    end)
+end
