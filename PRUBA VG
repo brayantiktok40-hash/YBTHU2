@@ -68,7 +68,7 @@ local noclipOriginal = {}
 local CONFIG = {
     LinkvertiseURL = "https://link-center.net/8782622/cKHaA02rpGsu",
     ClavesValidas = {
-        "BRAYAN829",
+        "BRAYAN809",
         "Key-675665",
         "Key-teleport-v1",
         "Key-teleport-v2",
@@ -738,10 +738,6 @@ end
 -- ============================================
 -- EJECUTAR
 -- ============================================
-local clave = cargarClaveGuardada()
-if clave and verificarClave(clave) then
-    print("✅ Clave guardada válida")
-    cargarTeleport()
-else
-    mostrarClaveUI()
-end
+-- El panel de acceso siempre aparece al iniciar.
+-- Una clave guardada no salta la pantalla: debe validarse en este arranque.
+mostrarClaveUI()
