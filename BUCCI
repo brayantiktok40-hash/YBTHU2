@@ -1004,53 +1004,122 @@ do
     end
 
     local espFullProximaActualizacion = 0
-    local espFullIntervalo = 0.75
+    local espFullIntervalo = 1.0
+    local espFullMaxMarcadores = 12
+    local espFullCandidatos = {}
+    local espFullConexionEntrada = nil
+    local espFullConexionSalida = nil
 
-    local function espFullActualizar()
-        if not espFullActivo then return end
-
-        -- Heartbeat sigue activo, pero el escaneo pesado solo ocurre cada 0.75 s.
-        local ahora = os.clock()
-        if ahora < espFullProximaActualizacion then return end
-        espFullProximaActualizacion = ahora + espFullIntervalo
-
-        for _, candidato in ipairs(workspace:GetDescendants()) do
-            if espFullEsHuevo(candidato) then
-                -- Si el huevo tiene piezas internas con nombres que también contienen
-                -- "egg", usa el modelo más cercano para crear un solo marcador.
-                local objeto = candidato:FindFirstAncestorWhichIsA("Model") or candidato
-                espFullCrearMarcador(objeto)
-                local datos = espFullMarcadores[objeto]
-                if datos and datos.texto then
-                    local dinero = espFullDinero(objeto)
-                    datos.texto.Text = "🥚 " .. objeto.Name
-                        .. "\nAparece: " .. espFullRecompensa(objeto)
-                        .. "\nPrecio original: " .. dinero
-                end
-            end
-        end
-
-        for objeto, datos in pairs(espFullMarcadores) do
-            if not objeto.Parent then
-                if datos.gui then datos.gui:Destroy() end
-                espFullMarcadores[objeto] = nil
+    local function espFullLimpiarMarcadoresAnteriores()
+        local contenedor = espFullContenedor()
+        if not contenedor then return end
+        for _, hijo in ipairs(contenedor:GetChildren()) do
+            if hijo.Name == "ESP_FULL_EggMarker" then
+                pcall(function() hijo:Destroy() end)
             end
         end
     end
 
+    local function espFullCantidadMarcadores()
+        local cantidad = 0
+        for _ in pairs(espFullMarcadores) do cantidad = cantidad + 1 end
+        return cantidad
+    end
+
+    local function espFullRegistrar(candidato)
+        if not espFullActivo or not candidato or not candidato.Parent then return end
+        if not espFullEsHuevo(candidato) then return end
+
+        local objeto = candidato:FindFirstAncestorWhichIsA("Model") or candidato
+        if espFullCandidatos[objeto] or espFullMarcadores[objeto] then return end
+
+        if espFullCantidadMarcadores() >= espFullMaxMarcadores then return end
+
+        espFullCandidatos[objeto] = true
+        pcall(function() espFullCrearMarcador(objeto) end)
+    end
+
+    local function espFullActualizarMarcadores()
+        if not espFullActivo then return end
+        local ahora = os.clock()
+        if ahora < espFullProximaActualizacion then return end
+        espFullProximaActualizacion = ahora + espFullIntervalo
+
+        -- Solo actualiza marcadores registrados; nunca vuelve a recorrer todo el mapa.
+        for objeto, datos in pairs(espFullMarcadores) do
+            if not objeto.Parent then
+                if datos.gui then pcall(function() datos.gui:Destroy() end) end
+                espFullMarcadores[objeto] = nil
+                espFullCandidatos[objeto] = nil
+            elseif datos.texto then
+                pcall(function()
+                    datos.texto.Text = "🥚 " .. objeto.Name
+                        .. "\nAparece: " .. espFullRecompensa(objeto)
+                        .. "\nPrecio original: " .. espFullDinero(objeto)
+                end)
+            end
+        end
+    end
+
+    local function espFullEscaneoInicial()
+        -- Se ejecuta una sola vez y cede tiempo periódicamente para no congelar el juego.
+        task.spawn(function()
+            local revisados = 0
+            for _, candidato in ipairs(workspace:GetDescendants()) do
+                if not espFullActivo then return end
+                if espFullCantidadMarcadores() >= espFullMaxMarcadores then return end
+                pcall(function() espFullRegistrar(candidato) end)
+                revisados = revisados + 1
+                if revisados % 50 == 0 then task.wait() end
+            end
+        end)
+    end
+
+    local function espFullDesconectarEventos()
+        if espFullConexion then pcall(function() espFullConexion:Disconnect() end) end
+        if espFullConexionEntrada then pcall(function() espFullConexionEntrada:Disconnect() end) end
+        if espFullConexionSalida then pcall(function() espFullConexionSalida:Disconnect() end) end
+        espFullConexion = nil
+        espFullConexionEntrada = nil
+        espFullConexionSalida = nil
+    end
+
     local function espFullAlternar()
-        espFullActivo = not espFullActivo
-        if espFullActivo then
-            espFullProximaActualizacion = 0
-            espFullActualizar()
-            if espFullConexion then pcall(function() espFullConexion:Disconnect() end) end
-            espFullConexion = game:GetService("RunService").Heartbeat:Connect(function()
-                espFullActualizar()
-            end)
-        else
-            if espFullConexion then pcall(function() espFullConexion:Disconnect() end) end
-            espFullConexion = nil
-            espFullEliminarMarcadores()
+        local ok, errorActivacion = pcall(function()
+            espFullActivo = not espFullActivo
+            if espFullActivo then
+                espFullProximaActualizacion = 0
+                espFullMarcadores = {}
+                espFullCandidatos = {}
+                espFullLimpiarMarcadoresAnteriores()
+                espFullConexionEntrada = workspace.DescendantAdded:Connect(function(objeto)
+                    pcall(function() espFullRegistrar(objeto) end)
+                end)
+                espFullConexionSalida = workspace.DescendantRemoving:Connect(function(objeto)
+                    local modelo = objeto:FindFirstAncestorWhichIsA("Model") or objeto
+                    local datos = espFullMarcadores[modelo]
+                    if datos and not modelo.Parent then
+                        if datos.gui then pcall(function() datos.gui:Destroy() end) end
+                        espFullMarcadores[modelo] = nil
+                        espFullCandidatos[modelo] = nil
+                    end
+                end)
+                espFullConexion = game:GetService("RunService").Heartbeat:Connect(function()
+                    pcall(espFullActualizarMarcadores)
+                end)
+                espFullEscaneoInicial()
+            else
+                espFullDesconectarEventos()
+                espFullEliminarMarcadores()
+                espFullCandidatos = {}
+            end
+        end)
+
+        if not ok then
+            espFullActivo = false
+            espFullDesconectarEventos()
+            pcall(espFullEliminarMarcadores)
+            warn("ESP FULL se desactivó por un error: " .. tostring(errorActivacion))
         end
     end
 
