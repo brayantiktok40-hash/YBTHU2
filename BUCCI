@@ -857,7 +857,7 @@ do
             "Cost", "Costo", "Precio", "PrecioOriginal", "PurchaseCost",
             -- Nombres de recompensa monetaria como respaldo.
             "Money", "Cash", "Coins", "Coin", "Dinero", "RewardAmount",
-            "MoneyReward", "CashReward", "CoinReward", "Payout", "Earnings", "Ganancia"
+            "MoneyReward", "CashReward", "CoinReward", "MoneyValue", "CashValue", "CoinValue", "PriceValue", "Amount", "AmountValue", "Payout", "Earnings", "Ganancia", "RewardValue", "RewardAmount"
         }
 
         -- Busca primero en el huevo y en el modelo que lo contiene.
@@ -941,19 +941,48 @@ do
                 local texto = tostring(hijo.Text or "")
                 local textoBajo = string.lower(texto)
                 if string.find(texto, "$", 1, true)
+                    or string.find(texto, "💰", 1, true)
+                    or string.find(texto, "¢", 1, true)
                     or string.find(textoBajo, "money", 1, true)
                     or string.find(textoBajo, "cash", 1, true)
                     or string.find(textoBajo, "coins", 1, true)
+                    or string.find(textoBajo, "coin", 1, true)
                     or string.find(textoBajo, "dinero", 1, true)
                     or string.find(textoBajo, "price", 1, true)
                     or string.find(textoBajo, "precio", 1, true)
                     or string.find(textoBajo, "cost", 1, true)
+                    or string.find(textoBajo, "costo", 1, true)
                     or string.find(textoBajo, "buy", 1, true)
                     or string.find(textoBajo, "purchase", 1, true)
-                    or string.find(textoBajo, "original", 1, true) then
+                    or string.find(textoBajo, "original", 1, true)
+                    or string.find(textoBajo, "reward", 1, true)
+                    or string.find(textoBajo, "recompensa", 1, true)
+                    or string.find(textoBajo, "sell", 1, true)
+                    or string.find(textoBajo, "venta", 1, true) then
                     local dinero = dineroValido(texto)
                     if dinero then return dinero end
                 end
+            end
+        end
+
+        -- Último respaldo: algunos juegos usan nombres en minúsculas o variantes
+        -- como Value/Amount junto con un contenedor relacionado con dinero.
+        for _, descendiente in ipairs(fuente:GetDescendants()) do
+            local nombreBajo = string.lower(descendiente.Name or "")
+            local esDinero = string.find(nombreBajo, "money", 1, true)
+                or string.find(nombreBajo, "cash", 1, true)
+                or string.find(nombreBajo, "coin", 1, true)
+                or string.find(nombreBajo, "dinero", 1, true)
+                or string.find(nombreBajo, "price", 1, true)
+                or string.find(nombreBajo, "precio", 1, true)
+                or string.find(nombreBajo, "cost", 1, true)
+                or string.find(nombreBajo, "payout", 1, true)
+                or string.find(nombreBajo, "reward", 1, true)
+                or string.find(nombreBajo, "amount", 1, true)
+            if esDinero and (descendiente:IsA("StringValue") or descendiente:IsA("NumberValue")
+                or descendiente:IsA("IntValue") or descendiente:IsA("FloatValue")) then
+                local texto = dineroValido(espFullTexto(descendiente.Value))
+                if texto then return texto end
             end
         end
 
@@ -971,7 +1000,7 @@ do
         marcador.AlwaysOnTop = true
         marcador.Size = UDim2.new(0, 240, 0, 74)
         marcador.StudsOffset = Vector3.new(0, 3.5, 0)
-        marcador.MaxDistance = 500
+        marcador.MaxDistance = 350
         marcador.Parent = espFullContenedor()
 
         local fondo = Instance.new("Frame")
@@ -996,7 +1025,7 @@ do
         texto.TextSize = 13
         texto.Font = Enum.Font.GothamBold
         texto.TextWrapped = true
-        texto.Text = "🥚 " .. objeto.Name .. "\nAparece: " .. espFullRecompensa(objeto) .. "\nPrecio original: " .. espFullDinero(objeto)
+        texto.Text = "🥚 " .. objeto.Name .. "\nAparece: " .. espFullRecompensa(objeto) .. "\nDinero: " .. espFullDinero(objeto)
         texto.Parent = fondo
 
         espFullMarcadores[objeto] = {gui = marcador, texto = texto}
@@ -1061,7 +1090,7 @@ do
                 pcall(function()
                     datos.texto.Text = "🥚 " .. objeto.Name
                         .. "\nAparece: " .. espFullRecompensa(objeto)
-                        .. "\nPrecio original: " .. espFullDinero(objeto)
+                        .. "\nDinero: " .. espFullDinero(objeto)
                 end)
             end
         end
