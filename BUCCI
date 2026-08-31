@@ -787,7 +787,8 @@ mostrarClaveUI()
 -- ============================================
 -- ESP FULL (MÓDULO AISLADO: SOLO HUEVOS)
 -- No modifica las funciones anteriores del script.
--- Lee atributos/valores visibles del propio objeto del huevo.
+-- Marca únicamente objetos cuyo nombre contiene egg/huevo.
+-- Lee atributos, valores y textos del huevo para mostrar recompensa y dinero.
 -- ============================================
 do
     local espFullActivo = false
@@ -834,8 +835,6 @@ do
         local nombre = string.lower(objeto.Name or "")
         return string.find(nombre, "egg", 1, true) ~= nil
             or string.find(nombre, "huevo", 1, true) ~= nil
-            or string.find(nombre, "incubator", 1, true) ~= nil
-            or string.find(nombre, "incubadora", 1, true) ~= nil
     end
 
     local function espFullParte(objeto)
@@ -852,7 +851,64 @@ do
     end
 
     local function espFullDinero(objeto)
-        return espFullBuscar(objeto, {"Money", "Cash", "Coins", "Dinero", "Precio", "Price", "Value", "Amount", "Cantidad"}) or "No definido"
+        local nombresDirectos = {
+            "Money", "Cash", "Coins", "Coin", "Dinero", "Precio", "Price",
+            "Value", "Amount", "Cantidad", "RewardAmount", "MoneyReward",
+            "CashReward", "CoinReward", "Payout", "Earnings", "Ganancia"
+        }
+
+        -- Busca primero en el huevo y en el modelo que lo contiene.
+        local fuente = objeto
+        local modelo = objeto:FindFirstAncestorWhichIsA("Model")
+        if modelo then fuente = modelo end
+
+        local directo = espFullBuscar(fuente, nombresDirectos)
+        if directo then return directo end
+
+        -- Revisa atributos cuyo nombre indique una recompensa monetaria.
+        for nombre, valor in pairs(fuente:GetAttributes()) do
+            local nombreBajo = string.lower(tostring(nombre))
+            if string.find(nombreBajo, "money", 1, true)
+                or string.find(nombreBajo, "cash", 1, true)
+                or string.find(nombreBajo, "coin", 1, true)
+                or string.find(nombreBajo, "dinero", 1, true)
+                or string.find(nombreBajo, "payout", 1, true)
+                or string.find(nombreBajo, "earn", 1, true) then
+                local texto = espFullTexto(valor)
+                if texto then return texto end
+            end
+        end
+
+        -- Revisa valores y etiquetas dentro del modelo del huevo.
+        for _, hijo in ipairs(fuente:GetDescendants()) do
+            local nombreBajo = string.lower(hijo.Name or "")
+            local esDinero = string.find(nombreBajo, "money", 1, true)
+                or string.find(nombreBajo, "cash", 1, true)
+                or string.find(nombreBajo, "coin", 1, true)
+                or string.find(nombreBajo, "dinero", 1, true)
+                or string.find(nombreBajo, "payout", 1, true)
+                or string.find(nombreBajo, "earn", 1, true)
+
+            if esDinero and (hijo:IsA("StringValue") or hijo:IsA("NumberValue")
+                or hijo:IsA("IntValue") or hijo:IsA("BoolValue")) then
+                local texto = espFullTexto(hijo.Value)
+                if texto then return texto end
+            end
+
+            if hijo:IsA("TextLabel") or hijo:IsA("TextButton") then
+                local texto = tostring(hijo.Text or "")
+                local textoBajo = string.lower(texto)
+                if string.find(texto, "$", 1, true)
+                    or string.find(textoBajo, "money", 1, true)
+                    or string.find(textoBajo, "cash", 1, true)
+                    or string.find(textoBajo, "coins", 1, true)
+                    or string.find(textoBajo, "dinero", 1, true) then
+                    if texto ~= "" then return texto end
+                end
+            end
+        end
+
+        return "No definido"
     end
 
     local function espFullCrearMarcador(objeto)
