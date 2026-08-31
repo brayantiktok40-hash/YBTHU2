@@ -68,6 +68,7 @@ local noclipOriginal = {}
 local CONFIG = {
     LinkvertiseURL = "https://link-center.net/8782622/cKHaA02rpGsu",
     ClavesValidas = {
+        "BRAYAN829",
         "Key-675665",
         "Key-teleport-v1",
         "Key-teleport-v2",
