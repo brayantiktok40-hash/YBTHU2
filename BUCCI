@@ -864,12 +864,19 @@ do
 
         local function dineroValido(valor)
             if valor == nil then return nil end
+
             local texto = tostring(valor)
-            local normalizado = string.gsub(texto, "[%s$,]", "")
-            if normalizado == "" or normalizado == "0" or normalizado == "0.0" then
+            -- Nunca uses una etiqueta descriptiva (por ejemplo, "sleep") como dinero.
+            -- Solo se acepta una cantidad numérica, con separadores opcionales.
+            local numero = string.match(texto, "%d[%d%.,]*")
+            if not numero then return nil end
+
+            local normalizado = string.gsub(numero, "[,%.]", "")
+            if normalizado == "" or tonumber(normalizado) == 0 then
                 return nil
             end
-            return texto
+
+            return numero
         end
 
         local directo = dineroValido(espFullBuscar(fuente, nombresDirectos))
