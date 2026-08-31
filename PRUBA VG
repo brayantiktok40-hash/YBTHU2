@@ -58,6 +58,9 @@ local vueloConexion = nil
 local vueloInputConexion = nil
 local vueloActivo = false
 local vueloVelocidad = 60
+local noclipActivo = false
+local noclipConexion = nil
+local noclipOriginal = {}
 
 -- ============================================
 -- CONFIGURACIÓN (¡CON TU CLAVE!)
@@ -306,6 +309,43 @@ local function mostrarClaveUI()
     end)
 end
 
+local function restaurarNoclip()
+    noclipActivo = false
+    if noclipConexion then
+        pcall(function() noclipConexion:Disconnect() end)
+        noclipConexion = nil
+    end
+    for parte, colision in pairs(noclipOriginal) do
+        if parte and parte.Parent then
+            pcall(function() parte.CanCollide = colision end)
+        end
+    end
+    noclipOriginal = {}
+end
+
+local function alternarNoclip()
+    if noclipActivo then
+        restaurarNoclip()
+        return false
+    end
+
+    noclipActivo = true
+    noclipConexion = game:GetService("RunService").Stepped:Connect(function()
+        if not noclipActivo then return end
+        local char = player.Character
+        if not char then return end
+        for _, parte in ipairs(char:GetDescendants()) do
+            if parte:IsA("BasePart") then
+                if noclipOriginal[parte] == nil then
+                    noclipOriginal[parte] = parte.CanCollide
+                end
+                parte.CanCollide = false
+            end
+        end
+    end)
+    return true
+end
+
 local function detenerVuelo()
     vueloActivo = false
     if vueloConexion then
@@ -375,6 +415,7 @@ local function cerrarScript()
     detenerVuelo()
     if ctrlConexion then pcall(function() ctrlConexion:Disconnect() end) end
     if vueloInputConexion then pcall(function() vueloInputConexion:Disconnect() end) end
+    restaurarNoclip()
     ctrlConexion = nil
     vueloInputConexion = nil
     if guiPrincipal then guiPrincipal:Destroy() end
@@ -402,8 +443,8 @@ function cargarTeleport()
     if not guiPrincipal then return end
 
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 360, 0, 430)
-    frame.Position = UDim2.new(0.5, -180, 0.5, -215)
+    frame.Size = UDim2.new(0, 360, 0, 480)
+    frame.Position = UDim2.new(0.5, -180, 0.5, -240)
     frame.BackgroundColor3 = Color3.fromRGB(10, 10, 25)
     frame.BorderSizePixel = 2
     frame.BorderColor3 = Color3.fromRGB(255, 200, 0)
@@ -565,6 +606,17 @@ function cargarTeleport()
         if valor > 300 then valor = 300 end
         vueloVelocidad = valor
         velocidad.Text = tostring(vueloVelocidad)
+    end)
+
+    local noclip = crearBoton("🧱 NOCLIP: OFF", 3.75)
+    noclip.MouseButton1Click:Connect(function()
+        if alternarNoclip() then
+            noclip.Text = "🧱 NOCLIP: ON"
+            noclip.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+        else
+            noclip.Text = "🧱 NOCLIP: OFF"
+            noclip.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+        end
     end)
 
     local cerrarBoton = crearBoton("✕ CERRAR SCRIPT", 4, Color3.fromRGB(170, 40, 40))
