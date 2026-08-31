@@ -524,16 +524,51 @@ function cargarTeleport()
         end)
     end)
 
-    local volar = crearBoton("✈️ VOLAR: OFF", 3)
-    volar.MouseButton1Click:Connect(function()
+    local fly = crearBoton("✈️ FLY: OFF", 3)
+    fly.MouseButton1Click:Connect(function()
         if alternarVuelo() then
-            volar.Text = "✈️ VOLAR: ON"
-            volar.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+            fly.Text = "✈️ FLY: ON"
+            fly.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
         else
-            volar.Text = "✈️ VOLAR: OFF"
-            volar.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+            fly.Text = "✈️ FLY: OFF"
+            fly.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
         end
     end)
+
+    local velocidad = Instance.new("TextBox")
+    velocidad.Size = UDim2.new(0.9, 0, 0, 38)
+    velocidad.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+    velocidad.BorderSizePixel = 1
+    velocidad.BorderColor3 = Color3.fromRGB(255, 200, 0)
+    velocidad.TextColor3 = Color3.fromRGB(255, 255, 255)
+    velocidad.PlaceholderColor3 = Color3.fromRGB(180, 180, 180)
+    velocidad.TextSize = 14
+    velocidad.Font = Enum.Font.GothamBold
+    velocidad.ClearTextOnFocus = false
+    velocidad.Text = tostring(vueloVelocidad)
+    velocidad.PlaceholderText = "Velocidad (10-300)"
+    velocidad.LayoutOrder = 3.5
+    velocidad.Parent = contenido
+
+    local velocidadCorner = Instance.new("UICorner")
+    velocidadCorner.CornerRadius = UDim.new(0, 8)
+    velocidadCorner.Parent = velocidad
+
+    velocidad.FocusLost:Connect(function()
+        local valor = tonumber(velocidad.Text)
+        if not valor then
+            velocidad.Text = tostring(vueloVelocidad)
+            return
+        end
+        valor = math.floor(valor)
+        if valor < 10 then valor = 10 end
+        if valor > 300 then valor = 300 end
+        vueloVelocidad = valor
+        velocidad.Text = tostring(vueloVelocidad)
+    end)
+
+    local cerrarBoton = crearBoton("✕ CERRAR SCRIPT", 4, Color3.fromRGB(170, 40, 40))
+    cerrarBoton.MouseButton1Click:Connect(cerrarScript)
 
     local discord = crearBoton("💬 DISCORD", 99, Color3.fromRGB(88, 101, 242))
     discord.MouseButton1Click:Connect(function()
@@ -644,7 +679,7 @@ function cargarTeleport()
         end
     end)
 
-    print("✅ PRUBA VG: GUI YBTHU lista - Ctrl izquierdo alterna; F activa/desactiva vuelo")
+    print("✅ PRUBA VG: GUI lista - Ctrl alterna, F o FLY activa el vuelo")
 end
 
 -- ============================================
