@@ -1,0 +1,784 @@
+-- ============================================
+-- TELEPORT PRO - Bucci
+-- CON SISTEMA DE CLAVES + SELECCIÓN DE DISPOSITIVO + CAMBIO RÁPIDO
+-- MOVIBLE - SIN RECORTE - PANELES MÁS GRANDES
+-- ============================================
+
+-- Arranque mínimo para Real: confirma la ejecución antes de cargar el panel completo.
+do
+    local ok, contenedor = pcall(function()
+        if type(gethui) == "function" then
+            return gethui()
+        end
+        return game:GetService("CoreGui")
+    end)
+
+    if ok and contenedor then
+        local aviso = Instance.new("ScreenGui")
+        aviso.Name = "PRUBA_VG_BOOT"
+        aviso.ResetOnSpawn = false
+        aviso.IgnoreGuiInset = true
+        aviso.DisplayOrder = 1000000
+        aviso.Parent = contenedor
+
+        local texto = Instance.new("TextLabel")
+        texto.Size = UDim2.new(0, 300, 0, 44)
+        texto.Position = UDim2.new(0.5, -150, 0, 25)
+        texto.BackgroundColor3 = Color3.fromRGB(10, 10, 25)
+        texto.BorderSizePixel = 2
+        texto.BorderColor3 = Color3.fromRGB(255, 200, 0)
+        texto.TextColor3 = Color3.fromRGB(255, 255, 255)
+        texto.TextSize = 16
+        texto.Font = Enum.Font.GothamBold
+        texto.Text = "✅ PRUBA VG ejecutado en Real"
+        texto.Parent = aviso
+
+        task.delay(3, function()
+            if aviso and aviso.Parent then aviso:Destroy() end
+        end)
+    else
+        warn("PRUBA VG: Real no permitió crear la GUI de arranque")
+    end
+end
+
+print("🔐 Cargando Teleport Pro con sistema de claves...")
+
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+if not player then
+    warn("PRUBA VG: ejecuta el script dentro de una partida en Real")
+    return
+end
+
+local posicionFijada = nil
+local dispositivoSeleccionado = "Celular"
+local guiPrincipal = nil
+local ctrlConexion = nil
+local vueloConexion = nil
+local vueloInputConexion = nil
+local vueloActivo = false
+local vueloVelocidad = 60
+local noclipActivo = false
+local noclipConexion = nil
+local noclipOriginal = {}
+
+-- ============================================
+-- CONFIGURACIÓN (¡CON TU CLAVE!)
+-- ============================================
+local CONFIG = {
+    LinkvertiseURL = "https://link-center.net/8782622/cKHaA02rpGsu",
+    ClavesValidas = {
+        "BRAYAN809",
+        "Key-675665",
+        "Key-teleport-v1",
+        "Key-teleport-v2",
+    },
+}
+
+local function obtenerContenedorGUI()
+    if type(gethui) == "function" then
+        local ok, hui = pcall(gethui)
+        if ok and hui then return hui end
+    end
+
+    local okCore, coreGui = pcall(function()
+        return game:GetService("CoreGui")
+    end)
+    if okCore and coreGui then return coreGui end
+
+    local playerGui = player:FindFirstChildOfClass("PlayerGui")
+    if playerGui then return playerGui end
+
+    local okPlayer, resultado = pcall(function()
+        return player:WaitForChild("PlayerGui", 10)
+    end)
+    if okPlayer then return resultado end
+    return nil
+end
+
+local function crearScreenGui(nombre)
+    local contenedor = obtenerContenedorGUI()
+    if not contenedor then
+        warn("PRUBA VG: Real no encontró un contenedor de GUI")
+        return nil
+    end
+
+    local ok, gui = pcall(function()
+        local anterior = contenedor:FindFirstChild(nombre)
+        if anterior then anterior:Destroy() end
+
+        local instancia = Instance.new("ScreenGui")
+        instancia.Name = nombre
+        instancia.ResetOnSpawn = false
+        instancia.IgnoreGuiInset = true
+        instancia.ZIndexBehavior = Enum.ZIndexBehavior.Global
+        instancia.DisplayOrder = 999999
+        instancia.Enabled = true
+        instancia.Parent = contenedor
+        return instancia
+    end)
+    if not ok or not gui then
+        warn("PRUBA VG: Real no pudo crear la GUI")
+        return nil
+    end
+    return gui
+end
+
+-- ============================================
+-- FUNCIONES DE CLAVE
+-- ============================================
+local function guardarClave(clave)
+    if writefile and isfolder and makefolder then
+        if not isfolder("TeleportPro") then makefolder("TeleportPro") end
+        pcall(function() writefile("TeleportPro/Key.txt", clave) end)
+    end
+end
+
+local function cargarClaveGuardada()
+    if isfile and isfile("TeleportPro/Key.txt") then
+        return readfile("TeleportPro/Key.txt")
+    end
+    return nil
+end
+
+local function verificarClave(clave)
+    for _, valida in ipairs(CONFIG.ClavesValidas) do
+        if clave == valida then return true end
+    end
+    return false
+end
+
+-- ============================================
+-- PANEL DE CLAVE (DISEÑO MEJORADO)
+-- ============================================
+local DISCORD_URL = "https://discord.gg/b9mvbR6rq"
+
+local function abrirDiscord()
+    local abierto = false
+    pcall(function()
+        local guiService = game:GetService("GuiService")
+        if guiService.OpenBrowserWindow then
+            guiService:OpenBrowserWindow(DISCORD_URL)
+            abierto = true
+        end
+    end)
+    if not abierto and type(setclipboard) == "function" then
+        pcall(setclipboard, DISCORD_URL)
+    end
+end
+
+local function mostrarClaveUI()
+    local gui = crearScreenGui("PRUBA_VG_KeyUI")
+    if not gui then return end
+
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(0, 320, 0, 260)
+    f.Position = UDim2.new(0.5, -160, 0.5, -130)
+    f.BackgroundColor3 = Color3.fromRGB(10, 10, 25)
+    f.BorderSizePixel = 2
+    f.BorderColor3 = Color3.fromRGB(255, 200, 0)
+    f.Parent = gui
+    f.Active = true
+
+    local e = Instance.new("UICorner")
+    e.CornerRadius = UDim.new(0, 12)
+    e.Parent = f
+
+    local t = Instance.new("TextLabel")
+    t.Size = UDim2.new(1, 0, 0, 35)
+    t.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+    t.Text = "🔑 CLAVE DE ACCESO"
+    t.TextColor3 = Color3.fromRGB(255, 255, 255)
+    t.TextSize = 15
+    t.Font = Enum.Font.GothamBold
+    t.Parent = f
+
+    local cred = Instance.new("TextLabel")
+    cred.Size = UDim2.new(1, 0, 0, 20)
+    cred.Position = UDim2.new(0, 0, 0, 40)
+    cred.BackgroundTransparency = 1
+    cred.Text = "✨ Bucci ✨"
+    cred.TextColor3 = Color3.fromRGB(255, 200, 0)
+    cred.TextSize = 12
+    cred.Font = Enum.Font.GothamBold
+    cred.Parent = f
+
+    local linea = Instance.new("Frame")
+    linea.Size = UDim2.new(0.85, 0, 0, 2)
+    linea.Position = UDim2.new(0.075, 0, 0, 65)
+    linea.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+    linea.BackgroundTransparency = 0.5
+    linea.Parent = f
+
+    local l = Instance.new("TextLabel")
+    l.Size = UDim2.new(0.9, 0, 0, 20)
+    l.Position = UDim2.new(0.05, 0, 0, 75)
+    l.BackgroundTransparency = 1
+    l.Text = "📢 Obtén tu clave en:"
+    l.TextColor3 = Color3.fromRGB(200, 200, 200)
+    l.TextSize = 11
+    l.Font = Enum.Font.Gotham
+    l.Parent = f
+
+    local btnLink = Instance.new("TextButton")
+    btnLink.Size = UDim2.new(0.8, 0, 0, 30)
+    btnLink.Position = UDim2.new(0.1, 0, 0, 98)
+    btnLink.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+    btnLink.BorderSizePixel = 0
+    btnLink.Text = "🔗 OBTENER CLAVE"
+    btnLink.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btnLink.TextSize = 13
+    btnLink.Font = Enum.Font.GothamBold
+    btnLink.Parent = f
+
+    local btnEsq = Instance.new("UICorner")
+    btnEsq.CornerRadius = UDim.new(0, 8)
+    btnEsq.Parent = btnLink
+
+    btnLink.MouseButton1Click:Connect(function()
+        if setclipboard then
+            setclipboard(CONFIG.LinkvertiseURL)
+            btnLink.Text = "✅ ENLACE COPIADO"
+            btnLink.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+            task.wait(1.5)
+            btnLink.Text = "🔗 OBTENER CLAVE"
+            btnLink.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+        else
+            btnLink.Text = "📋 " .. CONFIG.LinkvertiseURL
+            btnLink.BackgroundColor3 = Color3.fromRGB(200, 100, 0)
+        end
+    end)
+
+    local input = Instance.new("TextBox")
+    input.Size = UDim2.new(0.8, 0, 0, 35)
+    input.Position = UDim2.new(0.1, 0, 0, 138)
+    input.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
+    input.BorderSizePixel = 1
+    input.BorderColor3 = Color3.fromRGB(255, 200, 0)
+    input.PlaceholderText = "Pega tu clave aquí..."
+    input.TextColor3 = Color3.fromRGB(255, 255, 255)
+    input.Font = Enum.Font.Gotham
+    input.TextSize = 13
+    input.Parent = f
+
+    local inputEsq = Instance.new("UICorner")
+    inputEsq.CornerRadius = UDim.new(0, 6)
+    inputEsq.Parent = input
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.8, 0, 0, 35)
+    btn.Position = UDim2.new(0.1, 0, 0, 183)
+    btn.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+    btn.BorderSizePixel = 0
+    btn.Text = "✅ VERIFICAR"
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 14
+    btn.Font = Enum.Font.GothamBold
+    btn.Parent = f
+
+    local btnVerEsq = Instance.new("UICorner")
+    btnVerEsq.CornerRadius = UDim.new(0, 8)
+    btnVerEsq.Parent = btn
+
+    local status = Instance.new("TextLabel")
+    status.Size = UDim2.new(0.9, 0, 0, 20)
+    status.Position = UDim2.new(0.05, 0, 0, 225)
+    status.BackgroundTransparency = 1
+    status.Text = ""
+    status.TextColor3 = Color3.fromRGB(255, 200, 0)
+    status.TextSize = 12
+    status.Font = Enum.Font.Gotham
+    status.Parent = f
+
+    -- ARRASTRE (Movible)
+    local dragging = false
+    local ds = nil
+    local sp = nil
+    f.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            ds = i.Position
+            sp = f.Position
+        end
+    end)
+    f.InputChanged:Connect(function(i)
+        if dragging and i.UserInputType == Enum.UserInputType.Touch then
+            local d = i.Position - ds
+            f.Position = UDim2.new(sp.X.Scale, sp.X.Offset + d.X, sp.Y.Scale, sp.Y.Offset + d.Y)
+        end
+    end)
+    f.InputEnded:Connect(function() dragging = false end)
+
+    btn.MouseButton1Click:Connect(function()
+        local clave = input.Text
+        if verificarClave(clave) then
+            guardarClave(clave)
+            status.Text = "✅ ¡Clave correcta!"
+            status.TextColor3 = Color3.fromRGB(0, 255, 0)
+            task.wait(0.5)
+            gui:Destroy()
+            abrirDiscord()
+            cargarTeleport()
+        else
+            status.Text = "❌ Clave incorrecta"
+            status.TextColor3 = Color3.fromRGB(255, 0, 0)
+            input.Text = ""
+        end
+    end)
+end
+
+local function restaurarNoclip()
+    noclipActivo = false
+    if noclipConexion then
+        pcall(function() noclipConexion:Disconnect() end)
+        noclipConexion = nil
+    end
+    for parte, colision in pairs(noclipOriginal) do
+        if parte and parte.Parent then
+            pcall(function() parte.CanCollide = colision end)
+        end
+    end
+    noclipOriginal = {}
+end
+
+local function alternarNoclip()
+    if noclipActivo then
+        restaurarNoclip()
+        return false
+    end
+
+    noclipActivo = true
+    noclipConexion = game:GetService("RunService").Stepped:Connect(function()
+        if not noclipActivo then return end
+        local char = player.Character
+        if not char then return end
+        for _, parte in ipairs(char:GetDescendants()) do
+            if parte:IsA("BasePart") then
+                if noclipOriginal[parte] == nil then
+                    noclipOriginal[parte] = parte.CanCollide
+                end
+                parte.CanCollide = false
+            end
+        end
+    end)
+    return true
+end
+
+local function detenerVuelo()
+    vueloActivo = false
+    if vueloConexion then
+        pcall(function() vueloConexion:Disconnect() end)
+        vueloConexion = nil
+    end
+    local char = player.Character
+    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if humanoid then humanoid.PlatformStand = false end
+    if root then
+        for _, objeto in ipairs(root:GetChildren()) do
+            if objeto:IsA("BodyVelocity") or objeto:IsA("BodyGyro") then
+                objeto:Destroy()
+            end
+        end
+    end
+end
+
+local function alternarVuelo()
+    if vueloActivo then
+        detenerVuelo()
+        return false
+    end
+
+    local char = player.Character
+    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not root then return false end
+
+    local userInputService = game:GetService("UserInputService")
+    local camera = workspace.CurrentCamera
+    local bodyVelocity = Instance.new("BodyVelocity")
+    bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    bodyVelocity.Velocity = Vector3.zero
+    bodyVelocity.Parent = root
+
+    local bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    bodyGyro.P = 90000
+    bodyGyro.CFrame = root.CFrame
+    bodyGyro.Parent = root
+
+    vueloActivo = true
+    humanoid.PlatformStand = true
+    vueloConexion = game:GetService("RunService").RenderStepped:Connect(function()
+        if not vueloActivo or not root.Parent then
+            detenerVuelo()
+            return
+        end
+
+        local direccion = Vector3.zero
+        if userInputService:IsKeyDown(Enum.KeyCode.W) then direccion = direccion + camera.CFrame.LookVector end
+        if userInputService:IsKeyDown(Enum.KeyCode.S) then direccion = direccion - camera.CFrame.LookVector end
+        if userInputService:IsKeyDown(Enum.KeyCode.A) then direccion = direccion - camera.CFrame.RightVector end
+        if userInputService:IsKeyDown(Enum.KeyCode.D) then direccion = direccion + camera.CFrame.RightVector end
+        if userInputService:IsKeyDown(Enum.KeyCode.Space) then direccion = direccion + Vector3.new(0, 1, 0) end
+        if userInputService:IsKeyDown(Enum.KeyCode.LeftShift) then direccion = direccion - Vector3.new(0, 1, 0) end
+
+        bodyVelocity.Velocity = direccion.Magnitude > 0 and direccion.Unit * vueloVelocidad or Vector3.zero
+        bodyGyro.CFrame = camera.CFrame
+    end)
+    return true
+end
+
+local function cerrarScript()
+    detenerVuelo()
+    if ctrlConexion then pcall(function() ctrlConexion:Disconnect() end) end
+    if vueloInputConexion then pcall(function() vueloInputConexion:Disconnect() end) end
+    restaurarNoclip()
+    ctrlConexion = nil
+    vueloInputConexion = nil
+    if guiPrincipal then guiPrincipal:Destroy() end
+    guiPrincipal = nil
+    posicionFijada = nil
+    print("✅ PRUBA VG: script cerrado")
+end
+
+-- ============================================
+-- ARRASTRE COMPATIBLE CON FRAME Y BOTONES
+-- ============================================
+-- Frame no tiene MouseButton1Down. El arrastre debe hacerse mediante
+-- InputBegan/InputChanged y UserInputService.
+local function hacerMovibleConBoton(objeto)
+    if not objeto or not objeto:IsA("GuiObject") then return end
+
+    objeto.Active = true
+    local userInputService = game:GetService("UserInputService")
+    local arrastrando = false
+    local entradaArrastre
+    local posicionInicial
+    local posicionObjeto
+
+    objeto.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            arrastrando = true
+            entradaArrastre = input
+            posicionInicial = input.Position
+            posicionObjeto = objeto.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    arrastrando = false
+                end
+            end)
+        end
+    end)
+
+    objeto.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+            entradaArrastre = input
+        end
+    end)
+
+    userInputService.InputChanged:Connect(function(input)
+        if input == entradaArrastre and arrastrando then
+            local delta = input.Position - posicionInicial
+            objeto.Position = UDim2.new(
+                posicionObjeto.X.Scale,
+                posicionObjeto.X.Offset + delta.X,
+                posicionObjeto.Y.Scale,
+                posicionObjeto.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+-- ============================================
+-- PANEL DE TELEPORT (TAMAÑOS MÁS GRANDES)
+-- ============================================
+function cargarTeleport()
+    print("✅ PRUBA VG: cargando GUI Buacciaratichan en Real")
+
+    if guiPrincipal then
+        guiPrincipal:Destroy()
+        guiPrincipal = nil
+    end
+    if ctrlConexion then
+        pcall(function() ctrlConexion:Disconnect() end)
+        ctrlConexion = nil
+    end
+
+    guiPrincipal = crearScreenGui("PRUBA_VG_MainUI")
+    if not guiPrincipal then return end
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 360, 0, 480)
+    frame.Position = UDim2.new(0.5, -180, 0.5, -240)
+    frame.BackgroundColor3 = Color3.fromRGB(10, 10, 25)
+    frame.BorderSizePixel = 2
+    frame.BorderColor3 = Color3.fromRGB(255, 200, 0)
+    frame.Active = true
+    frame.Parent = guiPrincipal
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = frame
+
+    local titulo = Instance.new("TextLabel")
+    titulo.Size = UDim2.new(1, -45, 0, 45)
+    titulo.Position = UDim2.new(0, 10, 0, 5)
+    titulo.BackgroundTransparency = 1
+    titulo.Text = "🔥 Buacciaratichan"
+    titulo.TextColor3 = Color3.fromRGB(255, 200, 0)
+    titulo.TextSize = 22
+    titulo.Font = Enum.Font.GothamBold
+    titulo.Parent = frame
+
+    local minimizar = Instance.new("TextButton")
+    minimizar.Size = UDim2.new(0, 35, 0, 35)
+    minimizar.Position = UDim2.new(1, -42, 0, 10)
+    minimizar.BackgroundColor3 = Color3.fromRGB(50, 50, 65)
+    minimizar.BorderSizePixel = 0
+    minimizar.Text = "—"
+    minimizar.TextColor3 = Color3.fromRGB(255, 255, 255)
+    minimizar.TextSize = 20
+    minimizar.Font = Enum.Font.GothamBold
+    minimizar.Parent = frame
+
+    local minCorner = Instance.new("UICorner")
+    minCorner.CornerRadius = UDim.new(0, 8)
+    minCorner.Parent = minimizar
+
+    local contenido = Instance.new("Frame")
+    contenido.Size = UDim2.new(1, -30, 1, -65)
+    contenido.Position = UDim2.new(0, 15, 0, 55)
+    contenido.BackgroundTransparency = 1
+    contenido.Parent = frame
+
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 10)
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = contenido
+
+    local function crearBoton(texto, orden, color)
+        local boton = Instance.new("TextButton")
+        boton.Size = UDim2.new(0.9, 0, 0, 45)
+        boton.BackgroundColor3 = color or Color3.fromRGB(35, 35, 55)
+        boton.BorderSizePixel = 0
+        boton.Text = texto
+        boton.TextColor3 = Color3.fromRGB(255, 255, 255)
+        boton.TextSize = 15
+        boton.Font = Enum.Font.GothamBold
+        boton.LayoutOrder = orden
+        boton.Parent = contenido
+
+        local botonCorner = Instance.new("UICorner")
+        botonCorner.CornerRadius = UDim.new(0, 8)
+        botonCorner.Parent = boton
+        return boton
+    end
+
+    local spam = crearBoton("SPAM", 1)
+    local spameer = crearBoton("SPAMEER", 2)
+
+    local function obtenerRoot()
+        local char = player.Character
+        return char and char:FindFirstChild("HumanoidRootPart")
+    end
+
+    spam.MouseButton1Click:Connect(function()
+        local root = obtenerRoot()
+        if not root then
+            spam.Text = "SIN PERSONAJE"
+            task.delay(1, function()
+                if spam.Parent then spam.Text = "SPAM" end
+            end)
+            return
+        end
+
+        posicionFijada = root.Position
+        spam.Text = "✅ FIJADO"
+        spam.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+        task.delay(0.8, function()
+            if spam.Parent then
+                spam.Text = "SPAM"
+                spam.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+            end
+        end)
+    end)
+
+    spameer.MouseButton1Click:Connect(function()
+        if not posicionFijada then
+            spameer.Text = "SIN POSICIÓN"
+            spameer.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+            task.delay(1, function()
+                if spameer.Parent then
+                    spameer.Text = "SPAMEER"
+                    spameer.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+                end
+            end)
+            return
+        end
+
+        local root = obtenerRoot()
+        if not root then return end
+        root.CFrame = CFrame.new(posicionFijada)
+        spameer.Text = "✅ TELEPORT"
+        spameer.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+        task.delay(0.8, function()
+            if spameer.Parent then
+                spameer.Text = "SPAMEER"
+                spameer.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+            end
+        end)
+    end)
+
+    local fly = crearBoton("✈️ FLY: OFF", 3)
+    fly.MouseButton1Click:Connect(function()
+        if alternarVuelo() then
+            fly.Text = "✈️ FLY: ON"
+            fly.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+        else
+            fly.Text = "✈️ FLY: OFF"
+            fly.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+        end
+    end)
+
+    local velocidad = Instance.new("TextBox")
+    velocidad.Size = UDim2.new(0.9, 0, 0, 38)
+    velocidad.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+    velocidad.BorderSizePixel = 1
+    velocidad.BorderColor3 = Color3.fromRGB(255, 200, 0)
+    velocidad.TextColor3 = Color3.fromRGB(255, 255, 255)
+    velocidad.PlaceholderColor3 = Color3.fromRGB(180, 180, 180)
+    velocidad.TextSize = 14
+    velocidad.Font = Enum.Font.GothamBold
+    velocidad.ClearTextOnFocus = false
+    velocidad.Text = tostring(vueloVelocidad)
+    velocidad.PlaceholderText = "Velocidad (10-300)"
+    velocidad.LayoutOrder = 3.5
+    velocidad.Parent = contenido
+
+    local velocidadCorner = Instance.new("UICorner")
+    velocidadCorner.CornerRadius = UDim.new(0, 8)
+    velocidadCorner.Parent = velocidad
+
+    velocidad.FocusLost:Connect(function()
+        local valor = tonumber(velocidad.Text)
+        if not valor then
+            velocidad.Text = tostring(vueloVelocidad)
+            return
+        end
+        valor = math.floor(valor)
+        if valor < 10 then valor = 10 end
+        if valor > 300 then valor = 300 end
+        vueloVelocidad = valor
+        velocidad.Text = tostring(vueloVelocidad)
+    end)
+
+    local noclip = crearBoton("🧱 NOCLIP: OFF", 3.75)
+    noclip.MouseButton1Click:Connect(function()
+        if alternarNoclip() then
+            noclip.Text = "🧱 NOCLIP: ON"
+            noclip.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+        else
+            noclip.Text = "🧱 NOCLIP: OFF"
+            noclip.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+        end
+    end)
+
+    local cerrarBoton = crearBoton("✕ CERRAR SCRIPT", 4, Color3.fromRGB(170, 40, 40))
+    cerrarBoton.MouseButton1Click:Connect(cerrarScript)
+
+    local discord = crearBoton("💬 DISCORD", 99, Color3.fromRGB(88, 101, 242))
+    discord.MouseButton1Click:Connect(function()
+        if type(setclipboard) == "function" then
+            setclipboard("https://discord.gg/b9mvbR6rq")
+            discord.Text = "✅ COPIADO"
+            task.delay(1.5, function()
+                if discord.Parent then discord.Text = "💬 DISCORD" end
+            end)
+        end
+    end)
+
+    local cerrar = Instance.new("TextButton")
+    cerrar.Size = UDim2.new(0, 35, 0, 35)
+    cerrar.Position = UDim2.new(1, -84, 0, 10)
+    cerrar.BackgroundColor3 = Color3.fromRGB(170, 40, 40)
+    cerrar.BorderSizePixel = 0
+    cerrar.Text = "✕"
+    cerrar.TextColor3 = Color3.fromRGB(255, 255, 255)
+    cerrar.TextSize = 18
+    cerrar.Font = Enum.Font.GothamBold
+    cerrar.Parent = frame
+
+    local closeCorner = Instance.new("UICorner")
+    closeCorner.CornerRadius = UDim.new(0, 8)
+    closeCorner.Parent = cerrar
+    cerrar.MouseButton1Click:Connect(cerrarScript)
+
+    local logo = Instance.new("TextButton")
+    logo.Size = UDim2.new(0, 65, 0, 65)
+    logo.Position = UDim2.new(0, 20, 0.5, -32)
+    logo.BackgroundColor3 = Color3.fromRGB(10, 10, 25)
+    logo.BorderSizePixel = 2
+    logo.BorderColor3 = Color3.fromRGB(255, 200, 0)
+    logo.Text = "YB"
+    logo.TextColor3 = Color3.fromRGB(255, 200, 0)
+    logo.TextSize = 22
+    logo.Font = Enum.Font.GothamBold
+    logo.Visible = false
+    logo.Active = true
+    logo.Parent = guiPrincipal
+
+    local logoCorner = Instance.new("UICorner")
+    logoCorner.CornerRadius = UDim.new(1, 0)
+    logoCorner.Parent = logo
+
+    local function alternarGUI()
+        local visible = not frame.Visible
+        frame.Visible = visible
+        logo.Visible = not visible
+    end
+
+    minimizar.MouseButton1Click:Connect(function()
+        frame.Visible = false
+        logo.Visible = true
+    end)
+
+    logo.MouseButton1Click:Connect(function()
+        frame.Visible = true
+        logo.Visible = false
+    end)
+
+    ctrlConexion = game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if input.KeyCode == Enum.KeyCode.LeftControl and guiPrincipal then
+            guiPrincipal.Enabled = not guiPrincipal.Enabled
+        end
+    end)
+
+    vueloInputConexion = game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if input.KeyCode == Enum.KeyCode.F then
+            alternarVuelo()
+        end
+    end)
+
+    hacerMovibleConBoton(frame)
+
+    print("✅ PRUBA VG: GUI lista - Ctrl alterna, F o FLY activa el vuelo")
+end
+
+-- Compatibilidad con versiones anteriores que invocaban este nombre.
+function mostrarMenuDispositivo()
+    return cargarTeleport()
+end
+
+-- ============================================
+-- EJECUTAR
+-- ============================================
+-- El panel de acceso siempre aparece al iniciar.
+-- Una clave guardada no salta la pantalla: debe validarse en este arranque.
+mostrarClaveUI()
