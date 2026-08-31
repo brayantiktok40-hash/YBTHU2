@@ -862,7 +862,17 @@ do
         local modelo = objeto:FindFirstAncestorWhichIsA("Model")
         if modelo then fuente = modelo end
 
-        local directo = espFullBuscar(fuente, nombresDirectos)
+        local function dineroValido(valor)
+            if valor == nil then return nil end
+            local texto = tostring(valor)
+            local normalizado = string.gsub(texto, "[%s$,]", "")
+            if normalizado == "" or normalizado == "0" or normalizado == "0.0" then
+                return nil
+            end
+            return texto
+        end
+
+        local directo = dineroValido(espFullBuscar(fuente, nombresDirectos))
         if directo then return directo end
 
         -- Revisa atributos cuyo nombre indique una recompensa monetaria.
@@ -874,8 +884,24 @@ do
                 or string.find(nombreBajo, "dinero", 1, true)
                 or string.find(nombreBajo, "payout", 1, true)
                 or string.find(nombreBajo, "earn", 1, true) then
-                local texto = espFullTexto(valor)
+                local texto = dineroValido(espFullTexto(valor))
                 if texto then return texto end
+            end
+        end
+
+        -- Algunos juegos guardan el pago en un atributo de una pieza interna.
+        for _, descendiente in ipairs(fuente:GetDescendants()) do
+            for nombre, valor in pairs(descendiente:GetAttributes()) do
+                local nombreBajo = string.lower(tostring(nombre))
+                if string.find(nombreBajo, "money", 1, true)
+                    or string.find(nombreBajo, "cash", 1, true)
+                    or string.find(nombreBajo, "coin", 1, true)
+                    or string.find(nombreBajo, "dinero", 1, true)
+                    or string.find(nombreBajo, "payout", 1, true)
+                    or string.find(nombreBajo, "earn", 1, true) then
+                    local texto = dineroValido(espFullTexto(valor))
+                    if texto then return texto end
+                end
             end
         end
 
@@ -891,7 +917,7 @@ do
 
             if esDinero and (hijo:IsA("StringValue") or hijo:IsA("NumberValue")
                 or hijo:IsA("IntValue") or hijo:IsA("BoolValue")) then
-                local texto = espFullTexto(hijo.Value)
+                local texto = dineroValido(espFullTexto(hijo.Value))
                 if texto then return texto end
             end
 
@@ -903,12 +929,13 @@ do
                     or string.find(textoBajo, "cash", 1, true)
                     or string.find(textoBajo, "coins", 1, true)
                     or string.find(textoBajo, "dinero", 1, true) then
-                    if texto ~= "" then return texto end
+                    local dinero = dineroValido(texto)
+                    if dinero then return dinero end
                 end
             end
         end
 
-        return "No definido"
+        return "No detectado"
     end
 
     local function espFullCrearMarcador(objeto)
@@ -947,7 +974,7 @@ do
         texto.TextSize = 13
         texto.Font = Enum.Font.GothamBold
         texto.TextWrapped = true
-        texto.Text = "🥚 " .. objeto.Name .. "\nAparece: " .. espFullRecompensa(objeto) .. "\nDinero: $" .. espFullDinero(objeto)
+        texto.Text = "🥚 " .. objeto.Name .. "\nAparece: " .. espFullRecompensa(objeto) .. "\nDinero: " .. espFullDinero(objeto)
         texto.Parent = fondo
 
         espFullMarcadores[objeto] = {gui = marcador, texto = texto}
@@ -960,19 +987,32 @@ do
         end
     end
 
+    local espFullProximaActualizacion = 0
+    local espFullIntervalo = 0.75
+
     local function espFullActualizar()
         if not espFullActivo then return end
+
+        -- Heartbeat sigue activo, pero el escaneo pesado solo ocurre cada 0.75 s.
+        local ahora = os.clock()
+        if ahora < espFullProximaActualizacion then return end
+        espFullProximaActualizacion = ahora + espFullIntervalo
+
         for _, objeto in ipairs(workspace:GetDescendants()) do
             if espFullEsHuevo(objeto) then
                 espFullCrearMarcador(objeto)
                 local datos = espFullMarcadores[objeto]
                 if datos and datos.texto then
-                    datos.texto.Text = "🥚 " .. objeto.Name .. "\nAparece: " .. espFullRecompensa(objeto) .. "\nDinero: $" .. espFullDinero(objeto)
+                    local dinero = espFullDinero(objeto)
+                    datos.texto.Text = "🥚 " .. objeto.Name
+                        .. "\nAparece: " .. espFullRecompensa(objeto)
+                        .. "\nDinero: " .. dinero
                 end
             end
         end
+
         for objeto, datos in pairs(espFullMarcadores) do
-            if not objeto.Parent then
+            if not objeto.Parent or not espFullEsHuevo(objeto) then
                 if datos.gui then datos.gui:Destroy() end
                 espFullMarcadores[objeto] = nil
             end
@@ -982,6 +1022,7 @@ do
     local function espFullAlternar()
         espFullActivo = not espFullActivo
         if espFullActivo then
+            espFullProximaActualizacion = 0
             espFullActualizar()
             if espFullConexion then pcall(function() espFullConexion:Disconnect() end) end
             espFullConexion = game:GetService("RunService").Heartbeat:Connect(function()
