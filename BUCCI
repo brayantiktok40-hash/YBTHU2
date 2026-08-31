@@ -895,6 +895,9 @@ do
                 or string.find(nombreBajo, "price", 1, true)
                 or string.find(nombreBajo, "precio", 1, true)
                 or string.find(nombreBajo, "cost", 1, true)
+                or string.find(nombreBajo, "buy", 1, true)
+                or string.find(nombreBajo, "purchase", 1, true)
+                or string.find(nombreBajo, "original", 1, true)
                 or string.find(nombreBajo, "payout", 1, true)
                 or string.find(nombreBajo, "earn", 1, true) then
                 local texto = dineroValido(espFullTexto(valor))
@@ -944,7 +947,10 @@ do
                     or string.find(textoBajo, "dinero", 1, true)
                     or string.find(textoBajo, "price", 1, true)
                     or string.find(textoBajo, "precio", 1, true)
-                    or string.find(textoBajo, "cost", 1, true) then
+                    or string.find(textoBajo, "cost", 1, true)
+                    or string.find(textoBajo, "buy", 1, true)
+                    or string.find(textoBajo, "purchase", 1, true)
+                    or string.find(textoBajo, "original", 1, true) then
                     local dinero = dineroValido(texto)
                     if dinero then return dinero end
                 end
