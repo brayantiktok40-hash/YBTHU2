@@ -1,6 +1,6 @@
 -- ============================================
--- YBTHU BETA 2 PRO (MOUSE AIM - AGRESIVO)
--- Aimbot por mouse + Silent + Rage + ESP + Kill
+-- YBTHU BETA 2 PRO (MOUSE AIM v2 - MEJORADO)
+-- Aimbot mouse mejorado + Silent + Rage + ESP + Kill
 -- ============================================
 
 local Players = game:GetService("Players")
@@ -26,7 +26,6 @@ local function safeConnect(signal, fn)
     return conn
 end
 
--- Settings primero para que killScript siempre pueda apagarlas
 local Settings = {
     Aimbot = true,
     SilentAim = true,
@@ -37,11 +36,13 @@ local Settings = {
     ShowFOV = true,
     MaxDistance = 500,
     TargetPart = "Head",
-    Smoothness = 0.50,
-    AimDeadzone = 2.5,
-    SilentSmoothness = 0.82,
+    Smoothness = 0.62,
+    AimDeadzone = 1.8,
+    SilentSmoothness = 0.88,
     RageSmoothness = 1,
-    Prediction = 0.14,
+    Prediction = 0.165,
+    MouseAccel = 1.15,
+    TargetRefresh = 0.04,
     WallCheck = false,
     IgnoreTeam = true,
     StickyAim = true,
@@ -73,14 +74,12 @@ local function killScript()
     if running == false then return end
     running = false
 
-    -- 1. Apagar TODAS las funciones
     Settings.Aimbot = false
     Settings.SilentAim = false
     Settings.Rage = false
     Settings.ESP = false
     Settings.ShowFOV = false
 
-    -- 2. Cortar TODAS las conexiones
     for i = 1, #allConnections do
         local c = allConnections[i]
         if c then pcall(function() c:Disconnect() end) end
@@ -89,7 +88,6 @@ local function killScript()
         allConnections[i] = nil
     end
 
-    -- 3. Quitar highlights
     pcall(function()
         for _, p in ipairs(Players:GetPlayers()) do
             local char = p.Character
@@ -103,7 +101,6 @@ local function killScript()
         end
     end)
 
-    -- 4. Destruir FOV y menú por referencia directa
     pcall(function()
         if fovGuiRef then fovGuiRef:Destroy() end
     end)
@@ -111,7 +108,6 @@ local function killScript()
         if screenGuiRef then screenGuiRef:Destroy() end
     end)
 
-    -- 5. Búsqueda extra por si acaso (gethui / CoreGui / PlayerGui)
     local names = {"YBTHU_BETA2", "YBTHU_FOV"}
     local parents = {}
     pcall(function()
@@ -265,13 +261,20 @@ end
 
 local function getPredictedPosition(part)
     if not part then return nil end
-    local pred = Settings.Rage and (Settings.Prediction + 0.05) or Settings.Prediction
+    local pred = Settings.Rage and (Settings.Prediction + 0.06) or Settings.Prediction
     if pred <= 0 then return part.Position end
+
     local velocity = Vector3.zero
     pcall(function()
-        velocity = part.AssemblyLinearVelocity or part.Velocity or Vector3.zero
+        local char = part.Parent
+        local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso"))
+        local src = root or part
+        velocity = src.AssemblyLinearVelocity or src.Velocity or Vector3.zero
     end)
-    return part.Position + velocity * pred
+
+    -- Menos vertical = no se dispara hacia arriba en saltos
+    local horizontal = Vector3.new(velocity.X, velocity.Y * 0.35, velocity.Z)
+    return part.Position + horizontal * pred
 end
 
 local function getActiveFOV()
@@ -282,7 +285,7 @@ local currentTarget, stickyTarget = nil, nil
 local aiming = false
 local lastAutoFire = 0
 local lastScan = 0
-local targetRefreshRate = 0.06
+local targetRefreshRate = Settings.TargetRefresh or 0.04
 local smoothedAimPosition = nil
 local smoothedTarget = nil
 
@@ -401,7 +404,7 @@ safeConnect(RunService.RenderStepped, function(dt)
         smoothedTarget = currentTarget
         smoothedAimPosition = targetPos
     else
-        smoothedAimPosition = smoothedAimPosition:Lerp(targetPos, math.clamp(dt * 8, 0.08, 0.35))
+        smoothedAimPosition = smoothedAimPosition:Lerp(targetPos, math.clamp(dt * 12, 0.12, 0.45))
     end
 
     local alpha
@@ -424,9 +427,16 @@ safeConnect(RunService.RenderStepped, function(dt)
             local screenOffset = math.sqrt(deltaX * deltaX + deltaY * deltaY)
 
             if screenOffset > Settings.AimDeadzone then
-                local frameAlpha = 1 - math.pow(1 - math.clamp(alpha, 0.05, 1), math.clamp(dt * 60, 0.5, 2.2))
-                local moveX = deltaX * frameAlpha
-                local moveY = deltaY * frameAlpha
+                local frameAlpha = 1 - math.pow(1 - math.clamp(alpha, 0.05, 1), math.clamp(dt * 60, 0.45, 2.4))
+
+                -- Lejos = más rápido, cerca = más fino (sin temblor)
+                local accel = Settings.MouseAccel or 1.1
+                local distFactor = math.clamp(screenOffset / 120, 0.55, 1.35)
+                local strength = frameAlpha * distFactor * accel
+
+                local maxStep = Settings.Rage and 85 or 55
+                local moveX = math.clamp(deltaX * strength, -maxStep, maxStep)
+                local moveY = math.clamp(deltaY * strength, -maxStep, maxStep)
 
                 if typeof(mousemoverel) == "function" then
                     mousemoverel(moveX, moveY)
@@ -842,7 +852,6 @@ makeButton("Disc", 12, Theme.Discord, function()
     notify("YBTHU", Texts[Settings.Language].Notify, 3)
 end)
 
--- BOTÓN APAGAR (robusto)
 do
     local killBtn = Instance.new("TextButton")
     killBtn.Size = UDim2.new(1, 0, 0, 44)
@@ -869,7 +878,7 @@ end
 local footer = Instance.new("TextLabel")
 footer.Size = UDim2.new(1, 0, 0, 40)
 footer.BackgroundTransparency = 1
-footer.Text = "Mouse Aim | Insert = menú | Clic derecho = aim"
+footer.Text = "Mouse Aim v2 | Insert = menú | Clic derecho = aim"
 footer.TextColor3 = Theme.TextDim
 footer.Font = Enum.Font.Gotham
 footer.TextSize = 10
@@ -890,4 +899,4 @@ safeConnect(UserInputService.InputBegan, function(input, gp)
     end
 end)
 
-print("[YBTHU BETA 2 PRO] Mouse Aim - APAGAR SCRIPT listo")
+print("[YBTHU BETA 2 PRO] Mouse Aim v2 mejorado - APAGAR listo")
