@@ -170,6 +170,7 @@ local Texts = {
         Disc = "Discord",
         Notify = "Link copiado",
         Credit = "Creado por Brayan (YBTHU)",
+        Shutdown = "Apagar",
     },
     EN = {
         Title = "YBTHU",
@@ -188,6 +189,7 @@ local Texts = {
         Disc = "Discord",
         Notify = "Link copied",
         Credit = "Created by Brayan (YBTHU)",
+        Shutdown = "Shutdown",
     },
 }
 
@@ -856,12 +858,34 @@ end, function()
     subLabel.Text = t.Sub
     for _, refresh in pairs(toggleRefs) do pcall(refresh) end
     if labelRefs.Disc then labelRefs.Disc.Text = t.Disc end
+    if labelRefs.Shutdown then labelRefs.Shutdown.Text = t.Shutdown end
 end)
 
 makeButton("Disc", 12, Theme.Discord, function()
     if setclipboard then pcall(setclipboard, DISCORD_URL) end
     notify("YBTHU", Texts[Settings.Language].Notify, 3)
 end)
+
+local function shutdownScript()
+    -- Invalida esta instancia para que sus callbacks de GUI no vuelvan a cambiar estados.
+    Runtime.__YBTHU_BETA2_TOKEN = "__OFF__"
+    Settings.Aimbot = false
+    Settings.SilentAim = false
+    Settings.Rage = false
+    Settings.ESP = false
+    Settings.ShowFOV = false
+    aiming = false
+    autoAiming = false
+    autoTarget = nil
+    currentTarget = nil
+    stickyTarget = nil
+
+    pcall(function() RunService:UnbindFromRenderStep("YBTHU_AimAssist") end)
+    pcall(function() if fovGui then fovGui:Destroy() end end)
+    pcall(function() if screenGui then screenGui:Destroy() end end)
+end
+
+makeButton("Shutdown", 13, Theme.Rage, shutdownScript)
 
 local footer = Instance.new("TextLabel")
 footer.Size = UDim2.new(1, 0, 0, 40)
@@ -870,7 +894,8 @@ footer.Text = "Sin hooks pesados (no freeze)\nInsert = menú | Clic derecho = ai
 footer.TextColor3 = Theme.TextDim
 footer.Font = Enum.Font.Gotham
 footer.TextSize = 10
-footer.LayoutOrder = 13
+    footer.LayoutOrder = 14
+
 footer.Parent = content
 
 UserInputService.InputBegan:Connect(function(input, gp)
