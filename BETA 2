@@ -17,6 +17,8 @@ Runtime.__YBTHU_BETA2_TOKEN = INSTANCE_TOKEN
 
 local running = true
 local allConnections = {}
+local screenGuiRef = nil
+local fovGuiRef = nil
 
 local function safeConnect(signal, fn)
     local conn = signal:Connect(fn)
@@ -24,7 +26,7 @@ local function safeConnect(signal, fn)
     return conn
 end
 
--- Declaramos Settings tempr para que killScript no falle
+-- Settings primero para que killScript siempre pueda apagarlas
 local Settings = {
     Aimbot = true,
     SilentAim = true,
@@ -67,63 +69,64 @@ local Settings = {
     },
 }
 
-local fovGui -- se asigna más abajo
-
 local function killScript()
     if running == false then return end
     running = false
 
+    -- 1. Apagar TODAS las funciones
     Settings.Aimbot = false
     Settings.SilentAim = false
     Settings.Rage = false
     Settings.ESP = false
     Settings.ShowFOV = false
 
-    -- Desconectar todo
-    for _, conn in ipairs(allConnections) do
-        pcall(function() conn:Disconnect() end)
+    -- 2. Cortar TODAS las conexiones
+    for i = 1, #allConnections do
+        local c = allConnections[i]
+        if c then pcall(function() c:Disconnect() end) end
     end
-    if table.clear then
-        table.clear(allConnections)
-    else
-        for i = #allConnections, 1, -1 do
-            allConnections[i] = nil
-        end
+    for i = #allConnections, 1, -1 do
+        allConnections[i] = nil
     end
 
-    -- Quitar highlights
+    -- 3. Quitar highlights
     pcall(function()
         for _, p in ipairs(Players:GetPlayers()) do
             local char = p.Character
             if char then
-                for _, child in ipairs(char:GetChildren()) do
-                    if child:IsA("Highlight") then
-                        child:Destroy()
+                for _, ch in ipairs(char:GetChildren()) do
+                    if ch:IsA("Highlight") then
+                        pcall(function() ch:Destroy() end)
                     end
                 end
             end
         end
     end)
 
+    -- 4. Destruir FOV y menú por referencia directa
     pcall(function()
-        if fovGui then fovGui:Destroy() end
+        if fovGuiRef then fovGuiRef:Destroy() end
+    end)
+    pcall(function()
+        if screenGuiRef then screenGuiRef:Destroy() end
     end)
 
-    -- Destruir GUI desde cualquier parent posible
-    local function destroyByName(name)
-        local parents = {}
-        pcall(function()
-            if typeof(gethui) == "function" then
-                local h = gethui()
-                if h then table.insert(parents, h) end
-            end
-        end)
-        pcall(function() table.insert(parents, game:GetService("CoreGui")) end)
-        pcall(function()
-            local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-            if pg then table.insert(parents, pg) end
-        end)
-        for _, parent in ipairs(parents) do
+    -- 5. Búsqueda extra por si acaso (gethui / CoreGui / PlayerGui)
+    local names = {"YBTHU_BETA2", "YBTHU_FOV"}
+    local parents = {}
+    pcall(function()
+        if typeof(gethui) == "function" then
+            local h = gethui()
+            if h then table.insert(parents, h) end
+        end
+    end)
+    pcall(function() table.insert(parents, game:GetService("CoreGui")) end)
+    pcall(function()
+        local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        if pg then table.insert(parents, pg) end
+    end)
+    for _, parent in ipairs(parents) do
+        for _, name in ipairs(names) do
             pcall(function()
                 local obj = parent:FindFirstChild(name)
                 if obj then obj:Destroy() end
@@ -131,17 +134,14 @@ local function killScript()
         end
     end
 
-    destroyByName("YBTHU_BETA2")
-    destroyByName("YBTHU_FOV")
-
     pcall(function()
         StarterGui:SetCore("SendNotification", {
             Title = "YBTHU",
-            Text = "Script apagado",
+            Text = "Script APAGADO",
             Duration = 3,
         })
     end)
-    print("[YBTHU BETA 2] Script apagado correctamente")
+    print("[YBTHU BETA 2] Script completamente apagado")
 end
 
 local Texts = {
@@ -442,7 +442,7 @@ safeConnect(RunService.RenderStepped, function(dt)
     end
 end)
 
-local fovCircle, fovStroke
+local fovGui, fovCircle, fovStroke
 
 local function createFOV()
     local p = getGuiParent()
@@ -451,6 +451,7 @@ local function createFOV()
 
     fovGui = Instance.new("ScreenGui")
     fovGui.Name = "YBTHU_FOV"
+    fovGuiRef = fovGui
     fovGui.ResetOnSpawn = false
     fovGui.IgnoreGuiInset = true
     fovGui.Parent = p
@@ -549,6 +550,7 @@ screenGui.Name = "YBTHU_BETA2"
 screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
 screenGui.Parent = parent
+screenGuiRef = screenGui
 
 local window = Instance.new("Frame")
 window.Size = UDim2.new(0, 280, 0, 600)
@@ -840,9 +842,29 @@ makeButton("Disc", 12, Theme.Discord, function()
     notify("YBTHU", Texts[Settings.Language].Notify, 3)
 end)
 
-makeButton("Kill", 13, Theme.Rage, function()
-    pcall(killScript)
-end)
+-- BOTÓN APAGAR (robusto)
+do
+    local killBtn = Instance.new("TextButton")
+    killBtn.Size = UDim2.new(1, 0, 0, 44)
+    killBtn.BackgroundColor3 = Theme.Rage
+    killBtn.Text = Texts[Settings.Language].Kill
+    killBtn.TextColor3 = Color3.new(1, 1, 1)
+    killBtn.Font = Enum.Font.GothamBold
+    killBtn.TextSize = 14
+    killBtn.LayoutOrder = 13
+    killBtn.ZIndex = 50
+    killBtn.Active = true
+    killBtn.Parent = content
+    Instance.new("UICorner", killBtn).CornerRadius = UDim.new(0, 10)
+    labelRefs.Kill = killBtn
+
+    local function doKill()
+        print("[YBTHU] Botón APAGAR presionado")
+        killScript()
+    end
+    killBtn.MouseButton1Click:Connect(doKill)
+    killBtn.Activated:Connect(doKill)
+end
 
 local footer = Instance.new("TextLabel")
 footer.Size = UDim2.new(1, 0, 0, 40)
@@ -868,4 +890,4 @@ safeConnect(UserInputService.InputBegan, function(input, gp)
     end
 end)
 
-print("[YBTHU BETA 2 PRO] Mouse Aim activo - APAGAR SCRIPT arreglado")
+print("[YBTHU BETA 2 PRO] Mouse Aim - APAGAR SCRIPT listo")
