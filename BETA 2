@@ -1,6 +1,6 @@
 -- ============================================
--- YBTHU BETA 2 PRO (ESTABLE - SIN FREEZE)
--- Aimbot + Silent + Rage + ESP
+-- YBTHU BETA 2 PRO (AGRESIVO + ESTABLE)
+-- Aimbot + Silent + Rage + ESP + Kill button
 -- ============================================
 
 local Players = game:GetService("Players")
@@ -16,21 +16,69 @@ local Runtime = getgenv and getgenv() or _G
 local INSTANCE_TOKEN = tostring(os.clock()) .. tostring(math.random(100000, 999999))
 Runtime.__YBTHU_BETA2_TOKEN = INSTANCE_TOKEN
 
+local running = true
+local allConnections = {}
+
+local function safeConnect(signal, fn)
+    local conn = signal:Connect(fn)
+    table.insert(allConnections, conn)
+    return conn
+end
+
+local function killScript()
+    if not running then return end
+    running = false
+    Settings.Aimbot = false
+    Settings.SilentAim = false
+    Settings.Rage = false
+    Settings.ESP = false
+    Settings.ShowFOV = false
+
+    for _, conn in ipairs(allConnections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    table.clear(allConnections)
+
+    -- Quitar highlights
+    pcall(function()
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p.Character then
+                local h = p.Character:FindFirstChildOfClass("Highlight")
+                if h then h:Destroy() end
+            end
+        end
+    end)
+
+    pcall(function()
+        if fovGui then fovGui:Destroy() end
+    end)
+    pcall(function()
+        local gui = getGuiParent()
+        if gui then
+            local old = gui:FindFirstChild("YBTHU_BETA2")
+            if old then old:Destroy() end
+        end
+    end)
+
+    notify("YBTHU", "Script apagado", 3)
+    print("[YBTHU BETA 2] Script apagado correctamente")
+end
+
 local Settings = {
     Aimbot = true,
     SilentAim = true,
     Rage = false,
     AimKey = Enum.UserInputType.MouseButton2,
-    FOV = 300,
-    RageFOV = 400,
+    FOV = 340,
+    RageFOV = 450,
     ShowFOV = true,
     MaxDistance = 500,
     TargetPart = "Head",
-    Smoothness = 0.28,
-    AimDeadzone = 4,
-    SilentSmoothness = 0.75,
+    Smoothness = 0.55,          -- Más agresivo
+    AimDeadzone = 3.2,          -- Evita temblor
+    SilentSmoothness = 0.82,
     RageSmoothness = 1,
-    Prediction = 0.12,
+    Prediction = 0.14,
     WallCheck = false,
     IgnoreTeam = true,
     StickyAim = true,
@@ -74,6 +122,7 @@ local Texts = {
         Color = "ESP Color",
         Lang = "Idioma",
         Disc = "Discord",
+        Kill = "APAGAR SCRIPT",
         Notify = "Link copiado",
         Credit = "Creado por Brayan (YBTHU)",
     },
@@ -92,6 +141,7 @@ local Texts = {
         Color = "ESP Color",
         Lang = "Language",
         Disc = "Discord",
+        Kill = "KILL SCRIPT",
         Notify = "Link copied",
         Credit = "Created by Brayan (YBTHU)",
     },
@@ -264,14 +314,14 @@ local function doAutoFire()
     end)
 end
 
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
+safeConnect(UserInputService.InputBegan, function(input, gp)
+    if gp or not running then return end
     if input.UserInputType == Settings.AimKey then
         aiming = true
     end
 end)
 
-UserInputService.InputEnded:Connect(function(input)
+safeConnect(UserInputService.InputEnded, function(input)
     if input.UserInputType == Settings.AimKey then
         aiming = false
         if not Settings.StickyAim then
@@ -284,7 +334,8 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 -- UN solo loop de aim (ligero)
-RunService.RenderStepped:Connect(function(dt)
+safeConnect(RunService.RenderStepped, function(dt)
+    if not running then return end
     -- Comprueba también el estado real del botón para no perder InputBegan/InputEnded.
     local mouseHeld = false
     pcall(function()
@@ -402,6 +453,7 @@ local tracked = {}
 
 task.spawn(function()
     while task.wait(1.5) do
+        if not running then break end
         local list = {}
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= LocalPlayer and p.Character then
@@ -412,8 +464,8 @@ task.spawn(function()
     end
 end)
 
-RunService.Heartbeat:Connect(function()
-    if not Settings.ESP then return end
+safeConnect(RunService.Heartbeat, function()
+    if not running or not Settings.ESP then return end
     local color = Settings.ESPColors[Settings.ColorIndex]
     for _, model in pairs(tracked) do
         if model and model.Parent and isAlive(model) then
@@ -434,6 +486,7 @@ end)
 
 task.spawn(function()
     while task.wait(1.2) do
+        if not running then break end
         if not Settings.ESP then
             for _, model in pairs(tracked) do
                 if model and model.Parent then
@@ -464,8 +517,8 @@ screenGui.IgnoreGuiInset = true
 screenGui.Parent = parent
 
 local window = Instance.new("Frame")
-window.Size = UDim2.new(0, 280, 0, 560)
-window.Position = UDim2.new(0.02, 0, 0.18, 0)
+window.Size = UDim2.new(0, 280, 0, 600)
+window.Position = UDim2.new(0.02, 0, 0.15, 0)
 window.BackgroundColor3 = Theme.Bg
 window.BorderSizePixel = 0
 window.Active = true
@@ -577,37 +630,31 @@ content.Size = UDim2.new(1, -20, 1, -70)
 content.Position = UDim2.new(0, 10, 0, 64)
 content.BackgroundTransparency = 1
 content.BorderSizePixel = 0
-content.ScrollBarThickness = 3
-content.ScrollBarImageColor3 = Theme.Accent
-content.AutomaticCanvasSize = Enum.AutomaticSize.Y
+content.ScrollBarThickness = 4
 content.CanvasSize = UDim2.new(0, 0, 0, 0)
+content.AutomaticCanvasSize = Enum.AutomaticSize.Y
 content.Parent = window
 
-local listLayout = Instance.new("UIListLayout")
-listLayout.Padding = UDim.new(0, 8)
-listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-listLayout.Parent = content
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0, 8)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Parent = content
+
+local toggleRefs = {}
+local labelRefs = {}
 
 local function section(text, order)
-    local f = Instance.new("Frame")
-    f.Size = UDim2.new(1, 0, 0, 22)
-    f.BackgroundTransparency = 1
-    f.LayoutOrder = order
-    f.Parent = content
-    local l = Instance.new("TextLabel")
-    l.Size = UDim2.new(1, 0, 1, 0)
-    l.BackgroundTransparency = 1
-    l.Text = text
-    l.TextColor3 = Theme.Accent
-    l.Font = Enum.Font.GothamBold
-    l.TextSize = 11
-    l.TextXAlignment = Enum.TextXAlignment.Left
-    l.Parent = f
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, 0, 0, 22)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextColor3 = Theme.Accent
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 12
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.LayoutOrder = order
+    lbl.Parent = content
 end
-
-local toggleRefs, labelRefs = {}, {}
-local lastRageToggle = 0
-local rageToggleGuard = false
 
 local function makeToggle(labelKey, settingKey, order, onColor)
     local row = Instance.new("Frame")
@@ -619,8 +666,8 @@ local function makeToggle(labelKey, settingKey, order, onColor)
     Instance.new("UICorner", row).CornerRadius = UDim.new(0, 10)
 
     local name = Instance.new("TextLabel")
-    name.Size = UDim2.new(1, -70, 1, 0)
-    name.Position = UDim2.new(0, 14, 0, 0)
+    name.Size = UDim2.new(0.6, 0, 1, 0)
+    name.Position = UDim2.new(0, 12, 0, 0)
     name.BackgroundTransparency = 1
     name.Text = Texts[Settings.Language][labelKey]
     name.TextColor3 = Theme.Text
@@ -628,51 +675,34 @@ local function makeToggle(labelKey, settingKey, order, onColor)
     name.TextSize = 13
     name.TextXAlignment = Enum.TextXAlignment.Left
     name.Parent = row
-    labelRefs[labelKey] = name
 
-    local toggle = Instance.new("TextButton")
-    toggle.Size = UDim2.new(0, 48, 0, 24)
-    toggle.Position = UDim2.new(1, -60, 0.5, -12)
-    toggle.BackgroundColor3 = Settings[settingKey] and (onColor or Theme.On) or Theme.Off
-    toggle.Text = ""
-    toggle.Parent = row
-    Instance.new("UICorner", toggle).CornerRadius = UDim.new(1, 0)
-
-    local knob = Instance.new("Frame")
-    knob.Size = UDim2.new(0, 18, 0, 18)
-    knob.Position = Settings[settingKey] and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
-    knob.BackgroundColor3 = Color3.new(1, 1, 1)
-    knob.BorderSizePixel = 0
-    knob.Parent = toggle
-    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+    local value = Instance.new("TextButton")
+    value.Size = UDim2.new(0, 70, 0, 28)
+    value.Position = UDim2.new(1, -82, 0.5, -14)
+    value.BackgroundColor3 = Settings[settingKey] and (onColor or Theme.On) or Theme.Off
+    value.Text = Settings[settingKey] and "ON" or "OFF"
+    value.TextColor3 = Theme.Text
+    value.Font = Enum.Font.GothamBold
+    value.TextSize = 12
+    value.Parent = row
+    Instance.new("UICorner", value).CornerRadius = UDim.new(0, 8)
 
     local function refresh()
-        local on = Settings[settingKey]
-        toggle.BackgroundColor3 = on and (onColor or Theme.On) or Theme.Off
-        knob.Position = on and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
+        value.Text = Settings[settingKey] and "ON" or "OFF"
+        value.BackgroundColor3 = Settings[settingKey] and (onColor or Theme.On) or Theme.Off
         name.Text = Texts[Settings.Language][labelKey]
     end
 
-    toggle.MouseButton1Click:Connect(function()
-        -- Evita que un mismo toque/clic genere dos eventos y apague Rage inmediatamente.
-        if Runtime.__YBTHU_BETA2_TOKEN ~= INSTANCE_TOKEN then return end
-        if settingKey == "Rage" then
-            local now = os.clock()
-            if rageToggleGuard or now - lastRageToggle < 1 then return end
-            lastRageToggle = now
-            rageToggleGuard = true
-            task.delay(1, function() rageToggleGuard = false end)
-        end
-
+    value.MouseButton1Click:Connect(function()
         Settings[settingKey] = not Settings[settingKey]
-        if settingKey == "ShowFOV" or settingKey == "Rage" then updateFOV() end
-        if settingKey == "Rage" then
-            notify("YBTHU", Settings.Rage and "Rage: Head + Auto Fire ON" or "Rage: OFF", 2)
+        if settingKey == "Rage" and Settings.Rage then
+            Settings.Aimbot = true
         end
         refresh()
+        updateFOV()
     end)
 
-    toggleRefs[settingKey] = refresh
+    toggleRefs[labelKey] = refresh
     refresh()
 end
 
@@ -687,7 +717,7 @@ local function makeCycle(labelKey, order, getText, onClick)
 
     local name = Instance.new("TextLabel")
     name.Size = UDim2.new(0.45, 0, 1, 0)
-    name.Position = UDim2.new(0, 14, 0, 0)
+    name.Position = UDim2.new(0, 12, 0, 0)
     name.BackgroundTransparency = 1
     name.Text = Texts[Settings.Language][labelKey]
     name.TextColor3 = Theme.Text
@@ -697,10 +727,11 @@ local function makeCycle(labelKey, order, getText, onClick)
     name.Parent = row
 
     local value = Instance.new("TextButton")
-    value.Size = UDim2.new(0.48, -10, 0, 28)
-    value.Position = UDim2.new(0.5, 0, 0.5, -14)
+    value.Size = UDim2.new(0, 110, 0, 28)
+    value.Position = UDim2.new(1, -122, 0.5, -14)
     value.BackgroundColor3 = Theme.Off
-    value.TextColor3 = Theme.Accent
+    value.Text = getText()
+    value.TextColor3 = Theme.Text
     value.Font = Enum.Font.GothamBold
     value.TextSize = 12
     value.Parent = row
@@ -767,11 +798,16 @@ end, function()
     subLabel.Text = t.Sub
     for _, refresh in pairs(toggleRefs) do pcall(refresh) end
     if labelRefs.Disc then labelRefs.Disc.Text = t.Disc end
+    if labelRefs.Kill then labelRefs.Kill.Text = t.Kill end
 end)
 
 makeButton("Disc", 12, Theme.Discord, function()
     if setclipboard then pcall(setclipboard, DISCORD_URL) end
     notify("YBTHU", Texts[Settings.Language].Notify, 3)
+end)
+
+makeButton("Kill", 13, Theme.Rage, function()
+    killScript()
 end)
 
 local footer = Instance.new("TextLabel")
@@ -781,11 +817,11 @@ footer.Text = "Sin hooks pesados (no freeze)\nInsert = menú | Clic derecho = ai
 footer.TextColor3 = Theme.TextDim
 footer.Font = Enum.Font.Gotham
 footer.TextSize = 10
-footer.LayoutOrder = 13
+footer.LayoutOrder = 14
 footer.Parent = content
 
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
+safeConnect(UserInputService.InputBegan, function(input, gp)
+    if gp or not running then return end
     if input.KeyCode == Settings.MenuKey then
         if minimized then
             minimized = false
@@ -798,4 +834,4 @@ UserInputService.InputBegan:Connect(function(input, gp)
     end
 end)
 
-print("[YBTHU BETA 2 PRO] Estable - sin freeze")
+print("[YBTHU BETA 2 PRO] Agresivo + estable - botón APAGAR disponible")
