@@ -1,45 +1,60 @@
 -- ============================================
--- YBTHU BETA 2 - Aimbot + ESP (Estable)
--- Sin hooks pesados → no congela Roblox
+-- YBTHU BETA 2 - Aimbot + Silent Aim COMPLETO
+-- Estable (sin hooks pesados que congelan)
 -- ============================================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
+local TweenService = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
 
 -- ============================================
--- CONFIGURACIÓN
+-- CONFIGURACIÓN COMPLETA
 -- ============================================
 local Settings = {
+    -- Aim
     Aimbot = true,
-    SilentAim = true, -- Modo de aim más fuerte (snap) al mantener clic derecho
+    SilentAim = true,
+    AimKey = Enum.UserInputType.MouseButton2, -- Mantener clic derecho
+    FOV = 180,
+    ShowFOV = true,
+    MaxDistance = 400,
+    TargetPart = "Head", -- Head / UpperTorso / HumanoidRootPart
+    Smoothness = 0.12,        -- Aimbot normal (más bajo = más suave)
+    SilentSmoothness = 0.55,  -- Silent más agresivo
+    Prediction = 0.135,       -- Predicción de movimiento (0 = off)
+    WallCheck = false,        -- true = no apunta a través de paredes
+    IgnoreTeam = true,
+    StickyAim = true,         -- Mantiene el target hasta que salga del FOV
+
+    -- ESP
     ESP = true,
+    ColorIndex = 1,
+
+    -- UI
     Language = "ES",
-    AimKey = Enum.UserInputType.MouseButton2,
     MenuKey = Enum.KeyCode.Insert,
     Visible = true,
-    FOV = 160,
-    ColorIndex = 1,
-    Smoothness = 0.14,      -- Aimbot normal
-    SilentSmoothness = 0.45, -- Silent = más rápido/fuerte
-    MaxDistance = 350,
-    TargetPart = "Head",
-    IgnoreSameTeam = true,
 
     ESPColors = {
         Color3.fromRGB(255, 255, 255),
         Color3.fromRGB(255, 50, 50),
         Color3.fromRGB(50, 255, 50),
-        Color3.fromRGB(50, 120, 255),
+        Color3.fromRGB(50, 140, 255),
+        Color3.fromRGB(255, 200, 0),
     },
-
     ColorNames = {
-        ES = {"BLANCO", "ROJO", "VERDE", "AZUL"},
-        EN = {"WHITE", "RED", "GREEN", "BLUE"},
+        ES = {"BLANCO", "ROJO", "VERDE", "AZUL", "DORADO"},
+        EN = {"WHITE", "RED", "GREEN", "BLUE", "GOLD"},
+    },
+    PartNames = {
+        ES = { Head = "Cabeza", UpperTorso = "Torso", HumanoidRootPart = "Root" },
+        EN = { Head = "Head", UpperTorso = "Torso", HumanoidRootPart = "Root" },
     },
 }
 
@@ -49,6 +64,8 @@ local Texts = {
         Aim = "AIMBOT",
         Silent = "SILENT AIM",
         Esp = "ESP",
+        Fov = "FOV CIRCLE",
+        Part = "PARTE",
         Color = "COLOR",
         Lang = "IDIOMA: ES",
         Disc = "DISCORD",
@@ -60,6 +77,8 @@ local Texts = {
         Aim = "AIMBOT",
         Silent = "SILENT AIM",
         Esp = "ESP",
+        Fov = "FOV CIRCLE",
+        Part = "PART",
         Color = "COLOR",
         Lang = "LANG: EN",
         Disc = "DISCORD",
@@ -69,6 +88,7 @@ local Texts = {
 }
 
 local DISCORD_URL = "https://discord.gg/b9mvbR6rq"
+local PART_CYCLE = { "Head", "UpperTorso", "HumanoidRootPart" }
 
 -- ============================================
 -- UTILIDADES
@@ -95,48 +115,95 @@ end
 
 notify("YBTHU", Texts[Settings.Language].Credit, 5)
 
-local function getTargetPart(character)
+local function getPart(character)
     if not character then return nil end
     return character:FindFirstChild(Settings.TargetPart)
         or character:FindFirstChild("Head")
+        or character:FindFirstChild("UpperTorso")
+        or character:FindFirstChild("Torso")
         or character:FindFirstChild("HumanoidRootPart")
+end
+
+local function isAlive(character)
+    if not character then return false end
+    local hum = character:FindFirstChildOfClass("Humanoid")
+    return hum and hum.Health > 0
 end
 
 local function isValidPlayer(player)
     if player == LocalPlayer then return false end
-    if Settings.IgnoreSameTeam and player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then
+    if Settings.IgnoreTeam and player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then
         return false
     end
-    local character = player.Character
-    if not character then return false end
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid or humanoid.Health <= 0 then return false end
-    return true
+    return isAlive(player.Character)
+end
+
+local function hasLineOfSight(fromPos, toPart, character)
+    if not Settings.WallCheck then return true end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    local filter = { Camera }
+    if LocalPlayer.Character then table.insert(filter, LocalPlayer.Character) end
+    params.FilterDescendantsInstances = filter
+    local dir = toPart.Position - fromPos
+    local result = workspace:Raycast(fromPos, dir, params)
+    if not result then return true end
+    return result.Instance:IsDescendantOf(character)
+end
+
+-- Predicción simple de velocidad
+local function getPredictedPosition(part)
+    if Settings.Prediction <= 0 then return part.Position end
+    local velocity = Vector3.zero
+    pcall(function()
+        velocity = part.AssemblyLinearVelocity or part.Velocity or Vector3.zero
+    end)
+    return part.Position + velocity * Settings.Prediction
 end
 
 -- ============================================
--- TARGET FINDER (optimizado, no cada frame)
+-- TARGET FINDER
 -- ============================================
 local currentTarget = nil
+local stickyTarget = nil
 local lastScan = 0
-local SCAN_INTERVAL = 0.05 -- 20 veces por segundo máx
+local SCAN_INTERVAL = 0.03
 
 local function getClosestTarget()
-    local closest = nil
-    local closestDist = Settings.FOV
-    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local closest, closestDist = nil, Settings.FOV
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
     local camPos = Camera.CFrame.Position
+
+    -- Sticky: si el target anterior sigue válido y dentro del FOV, mantenerlo
+    if Settings.StickyAim and stickyTarget and stickyTarget.Parent then
+        local char = stickyTarget.Parent
+        if char:IsA("Model") and isAlive(char) then
+            local player = Players:GetPlayerFromCharacter(char)
+            if player and isValidPlayer(player) then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(stickyTarget.Position)
+                if onScreen and screenPos.Z > 0 then
+                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                    if dist <= Settings.FOV * 1.15 then
+                        if hasLineOfSight(camPos, stickyTarget, char) then
+                            return stickyTarget
+                        end
+                    end
+                end
+            end
+        end
+        stickyTarget = nil
+    end
 
     for _, player in ipairs(Players:GetPlayers()) do
         if isValidPlayer(player) then
-            local part = getTargetPart(player.Character)
+            local part = getPart(player.Character)
             if part then
                 local worldDist = (camPos - part.Position).Magnitude
                 if worldDist <= Settings.MaxDistance then
                     local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
                     if onScreen and screenPos.Z > 0 then
-                        local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
-                        if screenDist < closestDist then
+                        local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                        if screenDist < closestDist and hasLineOfSight(camPos, part, player.Character) then
                             closestDist = screenDist
                             closest = part
                         end
@@ -146,37 +213,33 @@ local function getClosestTarget()
         end
     end
 
+    stickyTarget = closest
     return closest
 end
 
 -- ============================================
--- AIMBOT (cámara) - estable, sin hooks
+-- AIMBOT + SILENT AIM (sin hooks peligrosos)
 -- ============================================
 local aiming = false
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.UserInputType == Settings.AimKey then
-        aiming = true
-    end
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.UserInputType == Settings.AimKey then aiming = true end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Settings.AimKey then
         aiming = false
+        if not Settings.StickyAim then
+            currentTarget = nil
+            stickyTarget = nil
+        end
     end
 end)
 
 RunService:BindToRenderStep("YBTHU_Aim", Enum.RenderPriority.Camera.Value + 1, function()
-    -- Solo buscar target cuando se está apuntando (ahorra CPU)
-    if not aiming then
-        currentTarget = nil
-        return
-    end
-
-    if not Settings.Aimbot and not Settings.SilentAim then
-        return
-    end
+    if not aiming then return end
+    if not Settings.Aimbot and not Settings.SilentAim then return end
 
     local now = tick()
     if now - lastScan >= SCAN_INTERVAL then
@@ -186,59 +249,115 @@ RunService:BindToRenderStep("YBTHU_Aim", Enum.RenderPriority.Camera.Value + 1, f
 
     if not currentTarget or not currentTarget.Parent then return end
 
-    local smoothness = Settings.SilentAim and Settings.SilentSmoothness or Settings.Smoothness
+    local targetPos = getPredictedPosition(currentTarget)
     local camPos = Camera.CFrame.Position
-    local desired = CFrame.lookAt(camPos, currentTarget.Position)
-    Camera.CFrame = Camera.CFrame:Lerp(desired, smoothness)
+    local desired = CFrame.lookAt(camPos, targetPos)
+
+    -- Silent Aim = más agresivo / casi instantáneo
+    -- Aimbot normal = suave
+    local alpha = Settings.SilentAim and Settings.SilentSmoothness or Settings.Smoothness
+
+    -- Si solo Silent está ON y Aimbot OFF → snap fuerte
+    if Settings.SilentAim and not Settings.Aimbot then
+        alpha = math.clamp(Settings.SilentSmoothness + 0.25, 0.3, 1)
+    end
+
+    Camera.CFrame = Camera.CFrame:Lerp(desired, alpha)
 end)
 
 -- ============================================
--- ESP (ligero)
+-- FOV CIRCLE
+-- ============================================
+local fovGui, fovCircle
+
+local function createFOV()
+    local parent = getGuiParent()
+    if not parent then return end
+
+    if fovGui then fovGui:Destroy() end
+
+    fovGui = Instance.new("ScreenGui")
+    fovGui.Name = "YBTHU_FOV"
+    fovGui.ResetOnSpawn = false
+    fovGui.IgnoreGuiInset = true
+    fovGui.Parent = parent
+
+    fovCircle = Instance.new("Frame")
+    fovCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+    fovCircle.Position = UDim2.fromScale(0.5, 0.5)
+    fovCircle.BackgroundTransparency = 1
+    fovCircle.Parent = fovGui
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 1.5
+    stroke.Color = Color3.fromRGB(255, 215, 0)
+    stroke.Transparency = 0.35
+    stroke.Parent = fovCircle
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(1, 0)
+    corner.Parent = fovCircle
+end
+
+local function updateFOV()
+    if not fovCircle then return end
+    if not Settings.ShowFOV then
+        fovCircle.Visible = false
+        return
+    end
+    fovCircle.Visible = true
+    local size = Settings.FOV * 2
+    fovCircle.Size = UDim2.fromOffset(size, size)
+end
+
+createFOV()
+updateFOV()
+
+RunService.RenderStepped:Connect(function()
+    if fovCircle and Settings.ShowFOV then
+        updateFOV()
+    end
+end)
+
+-- ============================================
+-- ESP
 -- ============================================
 local tracked = {}
 
-local function refreshTargets()
+local function refreshESP()
     local list = {}
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            table.insert(list, player.Character)
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            table.insert(list, p.Character)
         end
     end
     tracked = list
 end
 
 task.spawn(function()
-    while task.wait(2) do
-        refreshTargets()
-    end
+    while task.wait(1.5) do refreshESP() end
 end)
 
 RunService.Heartbeat:Connect(function()
     if not Settings.ESP then return end
-
     local color = Settings.ESPColors[Settings.ColorIndex]
-
     for _, model in pairs(tracked) do
-        if model and model.Parent then
-            local humanoid = model:FindFirstChildOfClass("Humanoid")
-            if humanoid and humanoid.Health > 0 then
-                local highlight = model:FindFirstChildOfClass("Highlight")
-                if not highlight then
-                    highlight = Instance.new("Highlight")
-                    highlight.Parent = model
-                    highlight.FillTransparency = 0.55
-                    highlight.OutlineTransparency = 0.2
-                    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                end
-                highlight.Enabled = true
-                highlight.FillColor = color
-                highlight.OutlineColor = color
+        if model and model.Parent and isAlive(model) then
+            local h = model:FindFirstChildOfClass("Highlight")
+            if not h then
+                h = Instance.new("Highlight")
+                h.Parent = model
+                h.FillTransparency = 0.55
+                h.OutlineTransparency = 0.2
+                h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
             end
+            h.Enabled = true
+            h.FillColor = color
+            h.OutlineColor = color
         end
     end
 end)
 
--- Desactivar highlights cuando ESP está off
 task.spawn(function()
     while task.wait(1) do
         if not Settings.ESP then
@@ -261,7 +380,6 @@ if not parent then
     return
 end
 
--- Evitar duplicar GUI
 local old = parent:FindFirstChild("YBTHU_BETA2")
 if old then old:Destroy() end
 
@@ -269,25 +387,23 @@ local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "YBTHU_BETA2"
 screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
-screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.Parent = parent
 
 local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 220, 0, 370)
-frame.Position = UDim2.new(0.02, 0, 0.3, 0)
+frame.Size = UDim2.new(0, 230, 0, 430)
+frame.Position = UDim2.new(0.02, 0, 0.25, 0)
 frame.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
 frame.BorderSizePixel = 0
 frame.Active = true
 frame.Parent = screenGui
 
 Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
-
 local stroke = Instance.new("UIStroke", frame)
 stroke.Color = Color3.fromRGB(255, 215, 0)
 stroke.Thickness = 1.8
 
 local title = Instance.new("TextLabel", frame)
-title.Size = UDim2.new(1, 0, 0, 40)
+title.Size = UDim2.new(1, 0, 0, 38)
 title.BackgroundTransparency = 1
 title.Text = Texts[Settings.Language].Title
 title.TextColor3 = Color3.fromRGB(255, 215, 0)
@@ -297,49 +413,43 @@ title.TextSize = 17
 -- Arrastre
 do
     local dragging, dragStart, startPos = false, nil, nil
-
     frame.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
             startPos = frame.Position
             input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
             end)
         end
     end)
-
     UserInputService.InputChanged:Connect(function(input)
         if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
-            frame.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + delta.X,
-                startPos.Y.Scale, startPos.Y.Offset + delta.Y
-            )
+            local d = input.Position - dragStart
+            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
         end
     end)
 end
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
     if input.KeyCode == Settings.MenuKey then
         Settings.Visible = not Settings.Visible
         frame.Visible = Settings.Visible
     end
 end)
 
-local buttonUpdaters = {}
+local updaters = {}
+local partIndex = 1
 
-local function createButton(yPos, kind)
+local function createButton(y, kind)
     local btn = Instance.new("TextButton", frame)
-    btn.Size = UDim2.new(0.9, 0, 0, 34)
-    btn.Position = UDim2.new(0.05, 0, 0, yPos)
+    btn.Size = UDim2.new(0.9, 0, 0, 32)
+    btn.Position = UDim2.new(0.05, 0, 0, y)
     btn.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
     btn.TextColor3 = Color3.new(1, 1, 1)
     btn.Font = Enum.Font.GothamMedium
-    btn.TextSize = 13
+    btn.TextSize = 12
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
     local function update()
@@ -353,6 +463,14 @@ local function createButton(yPos, kind)
         elseif kind == "esp" then
             btn.Text = t.Esp .. (Settings.ESP and ": ON" or ": OFF")
             btn.BackgroundColor3 = Settings.ESP and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(120, 40, 40)
+        elseif kind == "fov" then
+            btn.Text = t.Fov .. (Settings.ShowFOV and ": ON" or ": OFF")
+            btn.BackgroundColor3 = Settings.ShowFOV and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(120, 40, 40)
+        elseif kind == "part" then
+            local name = Settings.PartNames[Settings.Language][Settings.TargetPart] or Settings.TargetPart
+            btn.Text = t.Part .. ": " .. name
+            btn.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+            btn.TextColor3 = Color3.new(1, 1, 1)
         elseif kind == "color" then
             btn.Text = t.Color .. ": " .. Settings.ColorNames[Settings.Language][Settings.ColorIndex]
             btn.TextColor3 = Settings.ESPColors[Settings.ColorIndex]
@@ -375,12 +493,18 @@ local function createButton(yPos, kind)
             Settings.SilentAim = not Settings.SilentAim
         elseif kind == "esp" then
             Settings.ESP = not Settings.ESP
+        elseif kind == "fov" then
+            Settings.ShowFOV = not Settings.ShowFOV
+            updateFOV()
+        elseif kind == "part" then
+            partIndex = partIndex % #PART_CYCLE + 1
+            Settings.TargetPart = PART_CYCLE[partIndex]
         elseif kind == "color" then
             Settings.ColorIndex = Settings.ColorIndex % #Settings.ESPColors + 1
         elseif kind == "lang" then
             Settings.Language = Settings.Language == "ES" and "EN" or "ES"
             title.Text = Texts[Settings.Language].Title
-            for _, u in ipairs(buttonUpdaters) do u() end
+            for _, u in ipairs(updaters) do u() end
             return
         elseif kind == "discord" then
             if setclipboard then pcall(setclipboard, DISCORD_URL) end
@@ -389,15 +513,17 @@ local function createButton(yPos, kind)
         update()
     end)
 
-    table.insert(buttonUpdaters, update)
+    table.insert(updaters, update)
     update()
 end
 
-createButton(50, "aim")
-createButton(95, "silent")
-createButton(140, "esp")
-createButton(185, "color")
-createButton(230, "lang")
-createButton(280, "discord")
+createButton(45, "aim")
+createButton(85, "silent")
+createButton(125, "esp")
+createButton(165, "fov")
+createButton(205, "part")
+createButton(245, "color")
+createButton(285, "lang")
+createButton(330, "discord")
 
-print("[YBTHU BETA 2] Estable - Insert = menú | Clic derecho = aim")
+print("[YBTHU BETA 2] Completo - Insert = menú | Clic derecho = aim")
