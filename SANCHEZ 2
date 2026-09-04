@@ -349,6 +349,14 @@ if not parent then
     return
 end
 
+-- Elimina interfaces antiguas de versiones previas antes de crear la GUI actual.
+for _, oldName in ipairs({"YBTHU_BETA2", "YBTHU_AUTOMATIZE"}) do
+    local oldGui = parent:FindFirstChild(oldName)
+    if oldGui then
+        oldGui:Destroy()
+    end
+end
+
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "YBTHU_BETA"
 screenGui.ResetOnSpawn = false
