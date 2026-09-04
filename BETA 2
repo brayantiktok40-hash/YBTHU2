@@ -1,14 +1,13 @@
 -- ============================================
 -- YBTHU BETA 2 PRO
 -- Aimbot + Silent Aim + ESP
--- GUI profesional
+-- GUI profesional + Aimbot corregido
 -- ============================================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
-local TweenService = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
@@ -19,14 +18,14 @@ local Camera = workspace.CurrentCamera
 local Settings = {
     Aimbot = true,
     SilentAim = true,
-    AimKey = Enum.UserInputType.MouseButton2,
-    FOV = 180,
+    AimKey = Enum.UserInputType.MouseButton2, -- Mantén clic derecho
+    FOV = 220,
     ShowFOV = true,
-    MaxDistance = 400,
+    MaxDistance = 500,
     TargetPart = "Head",
-    Smoothness = 0.12,
-    SilentSmoothness = 0.55,
-    Prediction = 0.135,
+    Smoothness = 0.28,         -- Más fuerte para que se note el seguimiento
+    SilentSmoothness = 0.75,   -- Silent casi instantáneo
+    Prediction = 0.12,
     WallCheck = false,
     IgnoreTeam = true,
     StickyAim = true,
@@ -70,8 +69,6 @@ local Texts = {
         Disc = "Discord",
         Notify = "Link copiado",
         Credit = "Creado por Brayan (YBTHU)",
-        On = "ON",
-        Off = "OFF",
     },
     EN = {
         Title = "YBTHU",
@@ -89,8 +86,6 @@ local Texts = {
         Disc = "Discord",
         Notify = "Link copied",
         Credit = "Created by Brayan (YBTHU)",
-        On = "ON",
-        Off = "OFF",
     },
 }
 
@@ -98,13 +93,11 @@ local DISCORD_URL = "https://discord.gg/b9mvbR6rq"
 local PART_CYCLE = { "Head", "UpperTorso", "HumanoidRootPart" }
 local partIndex = 1
 
--- Theme
 local Theme = {
     Bg = Color3.fromRGB(18, 18, 24),
     Header = Color3.fromRGB(24, 24, 32),
     Card = Color3.fromRGB(28, 28, 38),
     Accent = Color3.fromRGB(255, 200, 50),
-    AccentDark = Color3.fromRGB(200, 150, 30),
     Text = Color3.fromRGB(240, 240, 245),
     TextDim = Color3.fromRGB(140, 140, 155),
     On = Color3.fromRGB(50, 200, 120),
@@ -150,7 +143,7 @@ end
 local function isAlive(character)
     if not character then return false end
     local hum = character:FindFirstChildOfClass("Humanoid")
-    return hum and hum.Health > 0
+    return hum ~= nil and hum.Health > 0
 end
 
 local function isValidPlayer(player)
@@ -174,6 +167,7 @@ local function hasLineOfSight(fromPos, toPart, character)
 end
 
 local function getPredictedPosition(part)
+    if not part then return nil end
     if Settings.Prediction <= 0 then return part.Position end
     local velocity = Vector3.zero
     pcall(function()
@@ -183,10 +177,9 @@ local function getPredictedPosition(part)
 end
 
 -- ============================================
--- TARGET / AIM
+-- TARGET FINDER (más fiable)
 -- ============================================
 local currentTarget, stickyTarget = nil, nil
-local lastScan, SCAN_INTERVAL = 0, 0.03
 local aiming = false
 
 local function getClosestTarget()
@@ -194,15 +187,16 @@ local function getClosestTarget()
     local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
     local camPos = Camera.CFrame.Position
 
+    -- Sticky aim
     if Settings.StickyAim and stickyTarget and stickyTarget.Parent then
-        local char = stickyTarget.Parent
-        if char:IsA("Model") and isAlive(char) then
+        local char = stickyTarget:FindFirstAncestorOfClass("Model") or stickyTarget.Parent
+        if typeof(char) == "Instance" and char:IsA("Model") and isAlive(char) then
             local player = Players:GetPlayerFromCharacter(char)
             if player and isValidPlayer(player) then
                 local sp, onScreen = Camera:WorldToViewportPoint(stickyTarget.Position)
                 if onScreen and sp.Z > 0 then
                     local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                    if dist <= Settings.FOV * 1.15 and hasLineOfSight(camPos, stickyTarget, char) then
+                    if dist <= Settings.FOV * 1.25 and hasLineOfSight(camPos, stickyTarget, char) then
                         return stickyTarget
                     end
                 end
@@ -213,14 +207,15 @@ local function getClosestTarget()
 
     for _, player in ipairs(Players:GetPlayers()) do
         if isValidPlayer(player) then
-            local part = getPart(player.Character)
+            local character = player.Character
+            local part = getPart(character)
             if part then
                 local worldDist = (camPos - part.Position).Magnitude
                 if worldDist <= Settings.MaxDistance then
                     local sp, onScreen = Camera:WorldToViewportPoint(part.Position)
                     if onScreen and sp.Z > 0 then
                         local screenDist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                        if screenDist < closestDist and hasLineOfSight(camPos, part, player.Character) then
+                        if screenDist < closestDist and hasLineOfSight(camPos, part, character) then
                             closestDist = screenDist
                             closest = part
                         end
@@ -234,38 +229,54 @@ local function getClosestTarget()
     return closest
 end
 
+-- ============================================
+-- AIMBOT (seguimiento fuerte)
+-- ============================================
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
-    if input.UserInputType == Settings.AimKey then aiming = true end
+    if input.UserInputType == Settings.AimKey then
+        aiming = true
+    end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Settings.AimKey then
         aiming = false
         if not Settings.StickyAim then
-            currentTarget, stickyTarget = nil, nil
+            currentTarget = nil
+            stickyTarget = nil
         end
     end
 end)
 
-RunService:BindToRenderStep("YBTHU_Aim", Enum.RenderPriority.Camera.Value + 1, function()
+-- Usar RenderStepped para mover la cámara cada frame
+RunService.RenderStepped:Connect(function(dt)
     if not aiming then return end
     if not Settings.Aimbot and not Settings.SilentAim then return end
 
-    local now = tick()
-    if now - lastScan >= SCAN_INTERVAL then
-        lastScan = now
-        currentTarget = getClosestTarget()
-    end
-
+    currentTarget = getClosestTarget()
     if not currentTarget or not currentTarget.Parent then return end
 
     local targetPos = getPredictedPosition(currentTarget)
-    local desired = CFrame.lookAt(Camera.CFrame.Position, targetPos)
-    local alpha = Settings.SilentAim and Settings.SilentSmoothness or Settings.Smoothness
+    if not targetPos then return end
+
+    local camPos = Camera.CFrame.Position
+    local desired = CFrame.lookAt(camPos, targetPos)
+
+    -- Fuerza del aim
+    local alpha
     if Settings.SilentAim and not Settings.Aimbot then
-        alpha = math.clamp(Settings.SilentSmoothness + 0.25, 0.3, 1)
+        alpha = 0.95 -- casi snap
+    elseif Settings.SilentAim and Settings.Aimbot then
+        alpha = Settings.SilentSmoothness -- fuerte
+    else
+        alpha = Settings.Smoothness -- suave
     end
+
+    -- Clamp por seguridad
+    alpha = math.clamp(alpha, 0.05, 1)
+
+    -- Aplicar seguimiento
     Camera.CFrame = Camera.CFrame:Lerp(desired, alpha)
 end)
 
@@ -368,7 +379,7 @@ task.spawn(function()
 end)
 
 -- ============================================
--- PROFESSIONAL GUI
+-- GUI PROFESIONAL
 -- ============================================
 local parent = getGuiParent()
 if not parent then
@@ -386,7 +397,6 @@ screenGui.IgnoreGuiInset = true
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.Parent = parent
 
--- Main window
 local window = Instance.new("Frame")
 window.Name = "Window"
 window.Size = UDim2.new(0, 280, 0, 520)
@@ -396,23 +406,19 @@ window.BorderSizePixel = 0
 window.Active = true
 window.ClipsDescendants = true
 window.Parent = screenGui
-
 Instance.new("UICorner", window).CornerRadius = UDim.new(0, 14)
 
 local windowStroke = Instance.new("UIStroke", window)
 windowStroke.Color = Theme.Stroke
 windowStroke.Thickness = 1.2
 
--- Header
 local header = Instance.new("Frame")
 header.Size = UDim2.new(1, 0, 0, 56)
 header.BackgroundColor3 = Theme.Header
 header.BorderSizePixel = 0
 header.Parent = window
-
 Instance.new("UICorner", header).CornerRadius = UDim.new(0, 14)
 
--- Fix bottom corners of header
 local headerFix = Instance.new("Frame")
 headerFix.Size = UDim2.new(1, 0, 0, 16)
 headerFix.Position = UDim2.new(0, 0, 1, -16)
@@ -449,7 +455,6 @@ subLabel.TextSize = 11
 subLabel.TextXAlignment = Enum.TextXAlignment.Left
 subLabel.Parent = header
 
--- Minimize button
 local minBtn = Instance.new("TextButton")
 minBtn.Size = UDim2.new(0, 32, 0, 32)
 minBtn.Position = UDim2.new(1, -44, 0, 12)
@@ -461,7 +466,6 @@ minBtn.TextSize = 16
 minBtn.Parent = header
 Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 8)
 
--- Floating logo when minimized
 local logo = Instance.new("TextButton")
 logo.Size = UDim2.new(0, 48, 0, 48)
 logo.Position = UDim2.new(0, 20, 0.5, -24)
@@ -486,7 +490,6 @@ logo.MouseButton1Click:Connect(function()
     logo.Visible = false
 end)
 
--- Drag window
 do
     local dragging, dragStart, startPos = false, nil, nil
     header.InputBegan:Connect(function(input)
@@ -507,7 +510,6 @@ do
     end)
 end
 
--- Content scroll
 local content = Instance.new("ScrollingFrame")
 content.Size = UDim2.new(1, -20, 1, -70)
 content.Position = UDim2.new(0, 10, 0, 64)
@@ -530,7 +532,6 @@ local function section(text, order)
     f.BackgroundTransparency = 1
     f.LayoutOrder = order
     f.Parent = content
-
     local l = Instance.new("TextLabel")
     l.Size = UDim2.new(1, 0, 1, 0)
     l.BackgroundTransparency = 1
@@ -543,10 +544,9 @@ local function section(text, order)
     return l
 end
 
-local toggleRefs = {}
-local labelRefs = {}
+local toggleRefs, labelRefs = {}, {}
 
-local function makeToggle(labelKey, settingKey, order, colorOverride)
+local function makeToggle(labelKey, settingKey, order)
     local row = Instance.new("Frame")
     row.Size = UDim2.new(1, 0, 0, 40)
     row.BackgroundColor3 = Theme.Card
@@ -585,7 +585,7 @@ local function makeToggle(labelKey, settingKey, order, colorOverride)
 
     local function refresh()
         local on = Settings[settingKey]
-        toggle.BackgroundColor3 = on and (colorOverride or Theme.On) or Theme.Off
+        toggle.BackgroundColor3 = on and Theme.On or Theme.Off
         knob.Position = on and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
     end
 
@@ -656,11 +656,9 @@ local function makeButton(labelKey, order, bgColor, onClick)
     btn.Parent = content
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 10)
     labelRefs[labelKey] = btn
-
     btn.MouseButton1Click:Connect(onClick)
 end
 
--- Build sections
 section(Texts[Settings.Language].Combat, 1)
 makeToggle("Aim", "Aimbot", 2)
 makeToggle("Silent", "SilentAim", 3)
@@ -688,26 +686,15 @@ end, function()
     local t = Texts[Settings.Language]
     titleLabel.Text = t.Title
     subLabel.Text = t.Sub
-    -- refresh all labels
-    for key, label in pairs(labelRefs) do
-        if label:IsA("TextLabel") or label:IsA("TextButton") then
-            if Texts[Settings.Language][key] then
-                if key == "Disc" or key == "Lang" then
-                    -- handled below / cycle
-                end
-            end
-        end
-    end
-    for _, refresh in pairs(toggleRefs) do
-        pcall(refresh)
-    end
-    -- fix section titles by rebuilding text on known section labels is harder; simple approach:
+    for _, refresh in pairs(toggleRefs) do pcall(refresh) end
     for _, child in ipairs(content:GetChildren()) do
-        if child:IsA("Frame") and child:FindFirstChildOfClass("TextLabel") then
+        if child:IsA("Frame") then
             local lbl = child:FindFirstChildOfClass("TextLabel")
-            if lbl and (lbl.Text == "COMBATE" or lbl.Text == "COMBAT") then lbl.Text = t.Combat end
-            if lbl and (lbl.Text == "VISUALES" or lbl.Text == "VISUALS") then lbl.Text = t.Visuals end
-            if lbl and (lbl.Text == "AJUSTES" or lbl.Text == "SETTINGS") then lbl.Text = t.Misc end
+            if lbl then
+                if lbl.Text == "COMBATE" or lbl.Text == "COMBAT" then lbl.Text = t.Combat end
+                if lbl.Text == "VISUALES" or lbl.Text == "VISUALS" then lbl.Text = t.Visuals end
+                if lbl.Text == "AJUSTES" or lbl.Text == "SETTINGS" then lbl.Text = t.Misc end
+            end
         end
     end
     if labelRefs.Disc then labelRefs.Disc.Text = t.Disc end
@@ -718,18 +705,17 @@ makeButton("Disc", 11, Theme.Discord, function()
     notify("YBTHU", Texts[Settings.Language].Notify, 3)
 end)
 
--- Footer
 local footer = Instance.new("TextLabel")
-footer.Size = UDim2.new(1, 0, 0, 20)
+footer.Size = UDim2.new(1, 0, 0, 28)
 footer.BackgroundTransparency = 1
-footer.Text = "Insert · Toggle menu"
+footer.Text = "Mantén CLIC DERECHO para apuntar\nInsert = menú"
 footer.TextColor3 = Theme.TextDim
 footer.Font = Enum.Font.Gotham
 footer.TextSize = 10
+footer.TextYAlignment = Enum.TextYAlignment.Top
 footer.LayoutOrder = 12
 footer.Parent = content
 
--- Toggle menu key
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.KeyCode == Settings.MenuKey then
@@ -744,4 +730,4 @@ UserInputService.InputBegan:Connect(function(input, gp)
     end
 end)
 
-print("[YBTHU BETA 2 PRO] GUI profesional cargada")
+print("[YBTHU BETA 2 PRO] Aimbot corregido - Mantén clic derecho para seguir al target")
