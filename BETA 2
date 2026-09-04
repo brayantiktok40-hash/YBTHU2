@@ -1,17 +1,15 @@
 -- ============================================
--- YBTHU BETA 2 PRO
--- Aimbot + Silent Aim + Rage (Head + Auto Fire) + ESP
+-- YBTHU BETA 2 PRO (ESTABLE - SIN FREEZE)
+-- Aimbot + Silent + Rage + ESP
 -- ============================================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
-local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
-local Mouse = LocalPlayer:GetMouse()
 
 local Settings = {
     Aimbot = true,
@@ -19,7 +17,7 @@ local Settings = {
     Rage = false,
     AimKey = Enum.UserInputType.MouseButton2,
     FOV = 220,
-    RageFOV = 450,
+    RageFOV = 400,
     ShowFOV = true,
     MaxDistance = 500,
     TargetPart = "Head",
@@ -35,7 +33,7 @@ local Settings = {
     Language = "ES",
     MenuKey = Enum.KeyCode.Insert,
     Visible = true,
-    AutoFireRate = 0.08, -- segundos entre disparos en Rage
+    AutoFireRate = 0.12,
 
     ESPColors = {
         Color3.fromRGB(255, 255, 255),
@@ -133,12 +131,10 @@ end
 
 notify("YBTHU", Texts[Settings.Language].Credit, 5)
 
--- En Rage siempre apunta a la cabeza
 local function getPart(character)
     if not character then return nil end
     if Settings.Rage then
-        return character:FindFirstChild("Head")
-            or character:FindFirstChild("HumanoidRootPart")
+        return character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart")
     end
     return character:FindFirstChild(Settings.TargetPart)
         or character:FindFirstChild("Head")
@@ -175,7 +171,7 @@ end
 
 local function getPredictedPosition(part)
     if not part then return nil end
-    local pred = Settings.Rage and (Settings.Prediction + 0.06) or Settings.Prediction
+    local pred = Settings.Rage and (Settings.Prediction + 0.05) or Settings.Prediction
     if pred <= 0 then return part.Position end
     local velocity = Vector3.zero
     pcall(function()
@@ -191,6 +187,7 @@ end
 local currentTarget, stickyTarget = nil, nil
 local aiming = false
 local lastAutoFire = 0
+local lastScan = 0
 
 local function getClosestTarget()
     local fov = getActiveFOV()
@@ -204,9 +201,9 @@ local function getClosestTarget()
             local player = Players:GetPlayerFromCharacter(char)
             if player and isValidPlayer(player) then
                 local sp, onScreen = Camera:WorldToViewportPoint(stickyTarget.Position)
-                if (onScreen and sp.Z > 0) or Settings.Rage then
+                if onScreen and sp.Z > 0 then
                     local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                    if dist <= fov * 1.35 and hasLineOfSight(camPos, stickyTarget, char) then
+                    if dist <= fov * 1.3 and hasLineOfSight(camPos, stickyTarget, char) then
                         return stickyTarget
                     end
                 end
@@ -223,7 +220,7 @@ local function getClosestTarget()
                 local worldDist = (camPos - part.Position).Magnitude
                 if worldDist <= Settings.MaxDistance then
                     local sp, onScreen = Camera:WorldToViewportPoint(part.Position)
-                    if (onScreen and sp.Z > 0) or Settings.Rage then
+                    if onScreen and sp.Z > 0 then
                         local screenDist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
                         if screenDist < closestDist and hasLineOfSight(camPos, part, character) then
                             closestDist = screenDist
@@ -239,63 +236,23 @@ local function getClosestTarget()
     return closest
 end
 
--- Auto click (Rage)
+-- Auto fire SIN yield (nunca task.wait aquí)
 local function doAutoFire()
     local now = tick()
     if now - lastAutoFire < Settings.AutoFireRate then return end
     lastAutoFire = now
 
-    -- Varios métodos según el executor / cliente
-    local ok = false
-
-    -- 1) mouse1click (muchos executors)
-    if typeof(mouse1click) == "function" then
-        pcall(mouse1click)
-        ok = true
-    end
-
-    -- 2) VirtualInputManager
-    if not ok then
-        pcall(function()
-            local vim = VirtualInputManager
-            vim:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-            task.wait()
-            vim:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-            ok = true
-        end)
-    end
-
-    -- 3) Fallback: simular con UserInputService no siempre funciona; se omite
-end
-
--- Silent Aim hacia la cabeza (redirige mouse.Hit cuando hay target)
-do
+    -- Solo métodos sin wait
     pcall(function()
-        if not (hookmetamethod and newcclosure and getrawmetatable) then return end
-
-        -- Hook solo del Mouse (más seguro que hookear todo game)
-        local mouse = Mouse
-        local mt = getrawmetatable(mouse)
-        if not mt then return end
-
-        local oldIndex = mt.__index
-        setreadonly(mt, false)
-
-        mt.__index = newcclosure(function(self, key)
-            if self == mouse and currentTarget and currentTarget.Parent then
-                local useSilent = Settings.SilentAim or Settings.Rage
-                if useSilent and (key == "Hit" or key == "Target") then
-                    if key == "Hit" then
-                        return CFrame.new(currentTarget.Position)
-                    elseif key == "Target" then
-                        return currentTarget
-                    end
-                end
-            end
-            return oldIndex(self, key)
-        end)
-
-        setreadonly(mt, true)
+        if typeof(mouse1click) == "function" then
+            mouse1click()
+            return
+        end
+        if typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then
+            mouse1press()
+            mouse1release()
+            return
+        end
     end)
 end
 
@@ -316,20 +273,19 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
+-- UN solo loop de aim (ligero)
 RunService.RenderStepped:Connect(function()
-    -- Rage: busca target siempre que esté ON (no solo con clic derecho)
-    -- Aimbot/Silent normales: solo con clic derecho
     local shouldAim = aiming or Settings.Rage
-    if not shouldAim then
-        if not Settings.Rage then
-            currentTarget = nil
-        end
-        return
-    end
-
+    if not shouldAim then return end
     if not Settings.Aimbot and not Settings.SilentAim and not Settings.Rage then return end
 
-    currentTarget = getClosestTarget()
+    -- Escanear cada ~0.04s para no saturar
+    local now = tick()
+    if now - lastScan >= 0.04 then
+        lastScan = now
+        currentTarget = getClosestTarget()
+    end
+
     if not currentTarget or not currentTarget.Parent then return end
 
     local targetPos = getPredictedPosition(currentTarget)
@@ -341,18 +297,17 @@ RunService.RenderStepped:Connect(function()
     if Settings.Rage then
         alpha = Settings.RageSmoothness
     elseif Settings.SilentAim and not Settings.Aimbot then
-        alpha = 0.95
-    elseif Settings.SilentAim and Settings.Aimbot then
+        alpha = 0.9
+    elseif Settings.SilentAim then
         alpha = Settings.SilentSmoothness
     else
         alpha = Settings.Smoothness
     end
 
-    alpha = math.clamp(alpha, 0.05, 1)
-    Camera.CFrame = Camera.CFrame:Lerp(desired, alpha)
+    Camera.CFrame = Camera.CFrame:Lerp(desired, math.clamp(alpha, 0.05, 1))
 
-    -- Rage: auto fire a la cabeza mientras hay target
-    if Settings.Rage and currentTarget then
+    -- Rage auto fire (sin wait)
+    if Settings.Rage then
         doAutoFire()
     end
 end)
@@ -363,7 +318,7 @@ local fovGui, fovCircle, fovStroke
 local function createFOV()
     local p = getGuiParent()
     if not p then return end
-    if fovGui then fovGui:Destroy() end
+    if fovGui then pcall(function() fovGui:Destroy() end) end
 
     fovGui = Instance.new("ScreenGui")
     fovGui.Name = "YBTHU_FOV"
@@ -390,8 +345,7 @@ local function updateFOV()
     if not fovCircle then return end
     fovCircle.Visible = Settings.ShowFOV
     if Settings.ShowFOV then
-        local size = getActiveFOV() * 2
-        fovCircle.Size = UDim2.fromOffset(size, size)
+        fovCircle.Size = UDim2.fromOffset(getActiveFOV() * 2, getActiveFOV() * 2)
         if fovStroke then
             fovStroke.Color = Settings.Rage and Theme.Rage or Theme.Accent
         end
@@ -400,25 +354,20 @@ end
 
 createFOV()
 updateFOV()
-RunService.RenderStepped:Connect(function()
-    if Settings.ShowFOV then updateFOV() end
-end)
 
--- ESP
+-- ESP (Heartbeat, no cada frame pesado)
 local tracked = {}
 
-local function refreshESP()
-    local list = {}
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character then
-            table.insert(list, p.Character)
-        end
-    end
-    tracked = list
-end
-
 task.spawn(function()
-    while task.wait(1.5) do refreshESP() end
+    while task.wait(1.5) do
+        local list = {}
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character then
+                table.insert(list, p.Character)
+            end
+        end
+        tracked = list
+    end
 end)
 
 RunService.Heartbeat:Connect(function()
@@ -442,7 +391,7 @@ RunService.Heartbeat:Connect(function()
 end)
 
 task.spawn(function()
-    while task.wait(1) do
+    while task.wait(1.2) do
         if not Settings.ESP then
             for _, model in pairs(tracked) do
                 if model and model.Parent then
@@ -457,22 +406,22 @@ end)
 -- GUI
 local parent = getGuiParent()
 if not parent then
-    warn("[YBTHU] No se pudo crear la GUI")
+    warn("[YBTHU] No GUI parent")
     return
 end
 
-local old = parent:FindFirstChild("YBTHU_BETA2")
-if old then old:Destroy() end
+pcall(function()
+    local old = parent:FindFirstChild("YBTHU_BETA2")
+    if old then old:Destroy() end
+end)
 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "YBTHU_BETA2"
 screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
-screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.Parent = parent
 
 local window = Instance.new("Frame")
-window.Name = "Window"
 window.Size = UDim2.new(0, 280, 0, 560)
 window.Position = UDim2.new(0.02, 0, 0.18, 0)
 window.BackgroundColor3 = Theme.Bg
@@ -481,7 +430,6 @@ window.Active = true
 window.ClipsDescendants = true
 window.Parent = screenGui
 Instance.new("UICorner", window).CornerRadius = UDim.new(0, 14)
-
 Instance.new("UIStroke", window).Color = Theme.Stroke
 
 local header = Instance.new("Frame")
@@ -589,8 +537,8 @@ content.BackgroundTransparency = 1
 content.BorderSizePixel = 0
 content.ScrollBarThickness = 3
 content.ScrollBarImageColor3 = Theme.Accent
-content.CanvasSize = UDim2.new(0, 0, 0, 0)
 content.AutomaticCanvasSize = Enum.AutomaticSize.Y
+content.CanvasSize = UDim2.new(0, 0, 0, 0)
 content.Parent = window
 
 local listLayout = Instance.new("UIListLayout")
@@ -665,7 +613,7 @@ local function makeToggle(labelKey, settingKey, order, onColor)
         Settings[settingKey] = not Settings[settingKey]
         if settingKey == "ShowFOV" or settingKey == "Rage" then updateFOV() end
         if settingKey == "Rage" then
-            notify("YBTHU", Settings.Rage and "Rage: Head + Auto Fire ON" or "Rage: OFF", 2)
+            notify("YBTHU", Settings.Rage and "Rage ON (Head + Auto)" or "Rage OFF", 2)
         end
         refresh()
     end)
@@ -693,7 +641,6 @@ local function makeCycle(labelKey, order, getText, onClick)
     name.TextSize = 13
     name.TextXAlignment = Enum.TextXAlignment.Left
     name.Parent = row
-    labelRefs[labelKey] = name
 
     local value = Instance.new("TextButton")
     value.Size = UDim2.new(0.48, -10, 0, 28)
@@ -742,7 +689,7 @@ makeCycle("Part", 5, function()
     if Settings.Rage then return "Cabeza (Rage)" end
     return Settings.PartNames[Settings.Language][Settings.TargetPart] or Settings.TargetPart
 end, function()
-    if Settings.Rage then return end -- en Rage siempre cabeza
+    if Settings.Rage then return end
     partIndex = partIndex % #PART_CYCLE + 1
     Settings.TargetPart = PART_CYCLE[partIndex]
 end)
@@ -765,16 +712,6 @@ end, function()
     titleLabel.Text = t.Title
     subLabel.Text = t.Sub
     for _, refresh in pairs(toggleRefs) do pcall(refresh) end
-    for _, child in ipairs(content:GetChildren()) do
-        if child:IsA("Frame") then
-            local lbl = child:FindFirstChildOfClass("TextLabel")
-            if lbl then
-                if lbl.Text == "COMBATE" or lbl.Text == "COMBAT" then lbl.Text = t.Combat end
-                if lbl.Text == "VISUALES" or lbl.Text == "VISUALS" then lbl.Text = t.Visuals end
-                if lbl.Text == "AJUSTES" or lbl.Text == "SETTINGS" then lbl.Text = t.Misc end
-            end
-        end
-    end
     if labelRefs.Disc then labelRefs.Disc.Text = t.Disc end
 end)
 
@@ -784,13 +721,12 @@ makeButton("Disc", 12, Theme.Discord, function()
 end)
 
 local footer = Instance.new("TextLabel")
-footer.Size = UDim2.new(1, 0, 0, 48)
+footer.Size = UDim2.new(1, 0, 0, 40)
 footer.BackgroundTransparency = 1
-footer.Text = "Rage ON = Head + Auto Fire\nClic derecho = aim normal\nInsert = menú"
+footer.Text = "Sin hooks pesados (no freeze)\nInsert = menú | Clic derecho = aim"
 footer.TextColor3 = Theme.TextDim
 footer.Font = Enum.Font.Gotham
 footer.TextSize = 10
-footer.TextYAlignment = Enum.TextYAlignment.Top
 footer.LayoutOrder = 13
 footer.Parent = content
 
@@ -808,4 +744,4 @@ UserInputService.InputBegan:Connect(function(input, gp)
     end
 end)
 
-print("[YBTHU BETA 2 PRO] Rage = Head lock + Auto Fire (toggle en menú)")
+print("[YBTHU BETA 2 PRO] Estable - sin freeze")
