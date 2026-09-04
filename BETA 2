@@ -193,6 +193,7 @@ local currentTarget, stickyTarget = nil, nil
 local aiming = false
 local lastAutoFire = 0
 local lastScan = 0
+local targetRefreshRate = 0.025
 
 local function getClosestTarget()
     local fov = getActiveFOV()
@@ -202,15 +203,14 @@ local function getClosestTarget()
 
     if Settings.StickyAim and stickyTarget and stickyTarget.Parent then
         local char = stickyTarget:FindFirstAncestorOfClass("Model") or stickyTarget.Parent
-        if typeof(char) == "Instance" and char:IsA("Model") and isAlive(char) then
-            local player = Players:GetPlayerFromCharacter(char)
-            if player and isValidPlayer(player) then
-                local sp, onScreen = Camera:WorldToViewportPoint(stickyTarget.Position)
-                if onScreen and sp.Z > 0 then
-                    local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                    if dist <= fov * 1.3 and hasLineOfSight(camPos, stickyTarget, char) then
-                        return stickyTarget
-                    end
+        local player = typeof(char) == "Instance" and char:IsA("Model") and Players:GetPlayerFromCharacter(char)
+        local withinDistance = (camPos - stickyTarget.Position).Magnitude <= Settings.MaxDistance
+        if player and withinDistance and isValidPlayer(player) then
+            local sp, onScreen = Camera:WorldToViewportPoint(stickyTarget.Position)
+            if onScreen and sp.Z > 0 then
+                local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                if dist <= fov * 1.35 and hasLineOfSight(camPos, stickyTarget, char) then
+                    return stickyTarget
                 end
             end
         end
@@ -279,19 +279,22 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 -- UN solo loop de aim (ligero)
-RunService.RenderStepped:Connect(function()
+RunService.RenderStepped:Connect(function(dt)
     local shouldAim = aiming or Settings.Rage
     if not shouldAim then return end
     if not Settings.Aimbot and not Settings.SilentAim and not Settings.Rage then return end
 
-    -- Escanear cada ~0.04s para no saturar
-    local now = tick()
-    if now - lastScan >= 0.04 then
+    -- Actualiza el objetivo con mayor frecuencia para reducir el retraso del seguimiento.
+    local now = os.clock()
+    if now - lastScan >= targetRefreshRate or not currentTarget or not currentTarget.Parent then
         lastScan = now
         currentTarget = getClosestTarget()
     end
 
-    if not currentTarget or not currentTarget.Parent then return end
+    if not currentTarget or not currentTarget.Parent then
+        stickyTarget = nil
+        return
+    end
 
     local targetPos = getPredictedPosition(currentTarget)
     if not targetPos then return end
@@ -309,7 +312,11 @@ RunService.RenderStepped:Connect(function()
         alpha = Settings.Smoothness
     end
 
-    Camera.CFrame = Camera.CFrame:Lerp(desired, math.clamp(alpha, 0.05, 1))
+    -- Silent Aim no debe mover la cámara por sí solo; Aimbot y Rage sí la siguen.
+    if Settings.Aimbot or Settings.Rage then
+        local frameAlpha = 1 - math.pow(1 - math.clamp(alpha, 0.05, 1), math.clamp(dt * 60, 0.5, 2))
+        Camera.CFrame = Camera.CFrame:Lerp(desired, frameAlpha)
+    end
 
     -- Rage auto fire (sin wait)
     if Settings.Rage then
