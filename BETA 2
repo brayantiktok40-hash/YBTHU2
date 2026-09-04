@@ -1,92 +1,6 @@
-local SilentAim = {}
-
-SilentAim.Enabled = true
-SilentAim.FOV = 150
-SilentAim.MaxDistance = 500
-SilentAim.TargetPart = "Head"
-
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-
-local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
-
-local function IsValidTarget(character)
-	if not character then
-		return false
-	end
-
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	local root = character:FindFirstChild("HumanoidRootPart")
-
-	return humanoid
-		and humanoid.Health > 0
-		and root ~= nil
-end
-
-function SilentAim.GetTarget()
-	if not SilentAim.Enabled then
-		return nil
-	end
-
-	local closest = nil
-	local closestDistance = SilentAim.FOV
-
-	local screenCenter = Vector2.new(
-		Camera.ViewportSize.X / 2,
-		Camera.ViewportSize.Y / 2
-	)
-
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player ~= LocalPlayer and player.Character then
-			local character = player.Character
-
-			if IsValidTarget(character) then
-				local part = character:FindFirstChild(SilentAim.TargetPart)
-					or character:FindFirstChild("HumanoidRootPart")
-
-				if part then
-					local distance =
-						(Camera.CFrame.Position - part.Position).Magnitude
-
-					if distance <= SilentAim.MaxDistance then
-						local screenPosition, visible =
-							Camera:WorldToViewportPoint(part.Position)
-
-						if visible then
-							local screenDistance =
-								(Vector2.new(
-									screenPosition.X,
-									screenPosition.Y
-								) - screenCenter).Magnitude
-
-							if screenDistance < closestDistance then
-								closestDistance = screenDistance
-								closest = part
-							end
-						end
-					end
-				end
-			end
-		end
-	end
-
-	return closest
-end
-
-function SilentAim.GetDirection(origin)
-	local target = SilentAim.GetTarget()
-
-	if target then
-		return (target.Position - origin).Unit
-	end
-
-	return Camera.CFrame.LookVector
-end
-
-return SilentAim   -- ============================================
--- YBTHU BETA - Aimbot + ESP (Versión Corregida)
--- Un solo aimbot suave, menú movible, compatible
+-- ============================================
+-- YBTHU BETA 2 - Silent Aim + Aimbot + ESP
+-- Versión unificada y corregida
 -- ============================================
 
 local Players = game:GetService("Players")
@@ -94,24 +8,27 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
 
-local localPlayer = Players.LocalPlayer
-local camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
 
 -- ============================================
 -- CONFIGURACIÓN
 -- ============================================
 local Settings = {
-    Aimbot = true,
+    Aimbot = true,          -- Aimbot de cámara (suave)
+    SilentAim = true,       -- Silent Aim (dirección de disparo)
     ESP = true,
-    Language = "ES", -- ES / EN
+    Language = "ES",        -- ES / EN
     AimKey = Enum.UserInputType.MouseButton2,
     MenuKey = Enum.KeyCode.Insert,
     Visible = true,
-    FOV = 180,
+    FOV = 160,
     ColorIndex = 1,
-    Smoothness = 0.14,
-    MaxDistance = 150,
-    RequireLineOfSight = true,
+    Smoothness = 0.13,
+    MaxDistance = 400,
+    TargetPart = "Head",
+    RequireLineOfSight = false,
     IgnoreSameTeam = true,
 
     ESPColors = {
@@ -129,8 +46,9 @@ local Settings = {
 
 local Texts = {
     ES = {
-        Title = "YBTHU BETA",
+        Title = "YBTHU BETA 2",
         Aim = "AIMBOT",
+        Silent = "SILENT AIM",
         Esp = "ESP",
         Color = "COLOR",
         Lang = "IDIOMA: ES",
@@ -139,8 +57,9 @@ local Texts = {
         Credit = "Creado por Brayan (YBTHU)",
     },
     EN = {
-        Title = "YBTHU BETA",
+        Title = "YBTHU BETA 2",
         Aim = "AIMBOT",
+        Silent = "SILENT AIM",
         Esp = "ESP",
         Color = "COLOR",
         Lang = "LANG: EN",
@@ -153,23 +72,18 @@ local Texts = {
 local DISCORD_URL = "https://discord.gg/b9mvbR6rq"
 
 -- ============================================
--- CONTENEDOR GUI SEGURO
+-- UTILIDADES
 -- ============================================
 local function getGuiParent()
     if typeof(gethui) == "function" then
         local ok, hui = pcall(gethui)
         if ok and hui then return hui end
     end
-    local ok, core = pcall(function()
-        return game:GetService("CoreGui")
-    end)
+    local ok, core = pcall(function() return game:GetService("CoreGui") end)
     if ok and core then return core end
-    return localPlayer:WaitForChild("PlayerGui", 5)
+    return LocalPlayer:WaitForChild("PlayerGui", 5)
 end
 
--- ============================================
--- NOTIFICACIÓN SEGURA
--- ============================================
 local function notify(title, text, duration)
     pcall(function()
         StarterGui:SetCore("SendNotification", {
@@ -182,8 +96,135 @@ end
 
 notify("YBTHU", Texts[Settings.Language].Credit, 5)
 
+local function getTargetPart(character)
+    return character:FindFirstChild(Settings.TargetPart)
+        or character:FindFirstChild("Head")
+        or character:FindFirstChild("HumanoidRootPart")
+end
+
+local function isValidCharacter(character)
+    if not character then return false end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local root = character:FindFirstChild("HumanoidRootPart")
+    return humanoid and humanoid.Health > 0 and root ~= nil
+end
+
+local function isValidPlayer(player)
+    if player == LocalPlayer then return false end
+    if Settings.IgnoreSameTeam and player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then
+        return false
+    end
+    return isValidCharacter(player.Character)
+end
+
 -- ============================================
--- AIMBOT SUAVE (único sistema)
+-- SILENT AIM + TARGET FINDER
+-- ============================================
+local currentTarget = nil
+
+local function getClosestTarget()
+    local closest = nil
+    local closestDist = Settings.FOV
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if isValidPlayer(player) then
+            local character = player.Character
+            local part = getTargetPart(character)
+            if part then
+                local worldDist = (Camera.CFrame.Position - part.Position).Magnitude
+                if worldDist <= Settings.MaxDistance then
+                    local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                    if onScreen and screenPos.Z > 0 then
+                        local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+                        if screenDist < closestDist then
+                            -- Line of sight opcional
+                            local blocked = false
+                            if Settings.RequireLineOfSight then
+                                local params = RaycastParams.new()
+                                params.FilterType = Enum.RaycastFilterType.Exclude
+                                local filter = {Camera}
+                                if LocalPlayer.Character then table.insert(filter, LocalPlayer.Character) end
+                                params.FilterDescendantsInstances = filter
+                                local result = workspace:Raycast(Camera.CFrame.Position, part.Position - Camera.CFrame.Position, params)
+                                if result and not result.Instance:IsDescendantOf(character) then
+                                    blocked = true
+                                end
+                            end
+                            if not blocked then
+                                closestDist = screenDist
+                                closest = part
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return closest
+end
+
+-- Actualizar target continuamente
+RunService.RenderStepped:Connect(function()
+    if Settings.SilentAim or Settings.Aimbot then
+        currentTarget = getClosestTarget()
+    else
+        currentTarget = nil
+    end
+end)
+
+-- Silent Aim: redirige la dirección del mouse / cámara al target
+local function applySilentAim()
+    if not Settings.SilentAim or not currentTarget then return end
+
+    -- Método 1: mouse.Hit / mouse.Target (funciona en muchos juegos)
+    pcall(function()
+        local origin = Camera.CFrame.Position
+        local direction = (currentTarget.Position - origin).Unit * 1000
+        local hitPos = origin + direction
+
+        -- Intentar sobrescribir propiedades comunes
+        if Mouse then
+            -- Algunos ejecutores permiten esto indirectamente vía hooks
+        end
+    end)
+end
+
+-- Hook de Silent Aim (compatible con la mayoría de ejecutores)
+do
+    local ok, err = pcall(function()
+        if hookmetamethod and getrawmetatable and newcclosure then
+            local mt = getrawmetatable(game)
+            local oldIndex = mt.__index
+
+            setreadonly(mt, false)
+
+            mt.__index = newcclosure(function(self, key)
+                if Settings.SilentAim and currentTarget then
+                    if self == Mouse and (key == "Hit" or key == "Target") then
+                        if key == "Hit" then
+                            return CFrame.new(currentTarget.Position)
+                        elseif key == "Target" then
+                            return currentTarget
+                        end
+                    end
+                end
+                return oldIndex(self, key)
+            end)
+
+            setreadonly(mt, true)
+        end
+    end)
+
+    if not ok then
+        -- Fallback silencioso si el executor no soporta hooks
+        warn("[YBTHU] Silent Aim hook no disponible en este executor (se usará solo Aimbot de cámara)")
+    end
+end
+
+-- ============================================
+-- AIMBOT DE CÁMARA (suave)
 -- ============================================
 local aiming = false
 
@@ -200,102 +241,24 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
-local function getTorso(character)
-    return character:FindFirstChild("UpperTorso")
-        or character:FindFirstChild("Torso")
-        or character:FindFirstChild("HumanoidRootPart")
-end
-
-local function isValidTarget(player)
-    if player == localPlayer then return false end
-    if Settings.IgnoreSameTeam and player.Team and localPlayer.Team and player.Team == localPlayer.Team then
-        return false
-    end
-
-    local character = player.Character
-    if not character then return false end
-
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local torso = getTorso(character)
-    if not humanoid or humanoid.Health <= 0 or not torso then
-        return false
-    end
-
-    local distance = (torso.Position - camera.CFrame.Position).Magnitude
-    if distance > Settings.MaxDistance then
-        return false
-    end
-
-    if Settings.RequireLineOfSight then
-        local origin = camera.CFrame.Position
-        local direction = torso.Position - origin
-        local params = RaycastParams.new()
-        params.FilterType = Enum.RaycastFilterType.Exclude
-
-        local filterList = {camera}
-        if localPlayer.Character then
-            table.insert(filterList, localPlayer.Character)
-        end
-        params.FilterDescendantsInstances = filterList
-
-        local result = workspace:Raycast(origin, direction, params)
-        if result and not result.Instance:IsDescendantOf(character) then
-            return false
-        end
-    end
-
-    return true, torso
-end
-
-local function getBestTarget()
-    local screenCenter = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
-    local bestTorso = nil
-    local bestScore = Settings.FOV
-
-    for _, player in ipairs(Players:GetPlayers()) do
-        local valid, torso = isValidTarget(player)
-        if valid then
-            local screenPoint, onScreen = camera:WorldToViewportPoint(torso.Position)
-            if onScreen and screenPoint.Z > 0 then
-                local point = Vector2.new(screenPoint.X, screenPoint.Y)
-                local dist = (point - screenCenter).Magnitude
-                if dist < bestScore then
-                    bestScore = dist
-                    bestTorso = torso
-                end
-            end
-        end
-    end
-
-    return bestTorso
-end
-
 RunService:BindToRenderStep("YBTHU_AimAssist", Enum.RenderPriority.Camera.Value + 1, function()
-    if not Settings.Aimbot or not aiming then return end
+    if not Settings.Aimbot or not aiming or not currentTarget then return end
 
-    local torso = getBestTarget()
-    if not torso then return end
-
-    local camPos = camera.CFrame.Position
-    local desired = CFrame.lookAt(camPos, torso.Position)
-    camera.CFrame = camera.CFrame:Lerp(desired, Settings.Smoothness)
+    local camPos = Camera.CFrame.Position
+    local desired = CFrame.lookAt(camPos, currentTarget.Position)
+    Camera.CFrame = Camera.CFrame:Lerp(desired, Settings.Smoothness)
 end)
 
 -- ============================================
--- ESP (Highlight)
+-- ESP
 -- ============================================
 local tracked = {}
 
 local function refreshTargets()
     local list = {}
     for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= localPlayer and player.Character then
+        if player ~= LocalPlayer and player.Character then
             table.insert(list, player.Character)
-        end
-    end
-    for _, model in ipairs(workspace:GetChildren()) do
-        if model:IsA("Model") and model:FindFirstChildOfClass("Humanoid") and model ~= localPlayer.Character then
-            table.insert(list, model)
         end
     end
     tracked = list
@@ -321,8 +284,8 @@ RunService.RenderStepped:Connect(function()
                     if not highlight then
                         highlight = Instance.new("Highlight")
                         highlight.Parent = model
-                        highlight.FillTransparency = 0.6
-                        highlight.OutlineTransparency = 0.2
+                        highlight.FillTransparency = 0.55
+                        highlight.OutlineTransparency = 0.15
                     end
                     highlight.Enabled = true
                     highlight.FillColor = color
@@ -346,42 +309,37 @@ if not parent then
 end
 
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "YBTHU_BETA"
+screenGui.Name = "YBTHU_BETA2"
 screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.Parent = parent
 
 local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 210, 0, 320)
-frame.Position = UDim2.new(0.02, 0, 0.35, 0)
+frame.Size = UDim2.new(0, 220, 0, 370)
+frame.Position = UDim2.new(0.02, 0, 0.3, 0)
 frame.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
 frame.BorderSizePixel = 0
 frame.Active = true
 frame.Parent = screenGui
 
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 10)
-corner.Parent = frame
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
 
-local stroke = Instance.new("UIStroke")
+local stroke = Instance.new("UIStroke", frame)
 stroke.Color = Color3.fromRGB(255, 215, 0)
 stroke.Thickness = 1.8
-stroke.Parent = frame
 
-local title = Instance.new("TextLabel")
+local title = Instance.new("TextLabel", frame)
 title.Size = UDim2.new(1, 0, 0, 40)
 title.BackgroundTransparency = 1
 title.Text = Texts[Settings.Language].Title
 title.TextColor3 = Color3.fromRGB(255, 215, 0)
 title.Font = Enum.Font.GothamBold
-title.TextSize = 18
-title.Parent = frame
+title.TextSize = 17
 
--- Arrastre moderno (reemplaza .Draggable)
+-- Arrastre moderno
 do
-    local dragging = false
-    local dragStart, startPos
+    local dragging, dragStart, startPos = false, nil, nil
 
     frame.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -407,7 +365,7 @@ do
     end)
 end
 
--- Toggle menú con Insert
+-- Toggle menú
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.KeyCode == Settings.MenuKey then
@@ -419,24 +377,24 @@ end)
 local buttonUpdaters = {}
 
 local function createButton(yPos, kind)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.9, 0, 0, 36)
+    local btn = Instance.new("TextButton", frame)
+    btn.Size = UDim2.new(0.9, 0, 0, 34)
     btn.Position = UDim2.new(0.05, 0, 0, yPos)
     btn.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
     btn.TextColor3 = Color3.new(1, 1, 1)
     btn.Font = Enum.Font.GothamMedium
     btn.TextSize = 13
-    btn.Parent = frame
 
-    local c = Instance.new("UICorner")
-    c.CornerRadius = UDim.new(0, 6)
-    c.Parent = btn
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
     local function update()
         local t = Texts[Settings.Language]
         if kind == "aim" then
             btn.Text = t.Aim .. (Settings.Aimbot and ": ON" or ": OFF")
             btn.BackgroundColor3 = Settings.Aimbot and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(120, 40, 40)
+        elseif kind == "silent" then
+            btn.Text = t.Silent .. (Settings.SilentAim and ": ON" or ": OFF")
+            btn.BackgroundColor3 = Settings.SilentAim and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(120, 40, 40)
         elseif kind == "esp" then
             btn.Text = t.Esp .. (Settings.ESP and ": ON" or ": OFF")
             btn.BackgroundColor3 = Settings.ESP and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(120, 40, 40)
@@ -458,6 +416,8 @@ local function createButton(yPos, kind)
     btn.MouseButton1Click:Connect(function()
         if kind == "aim" then
             Settings.Aimbot = not Settings.Aimbot
+        elseif kind == "silent" then
+            Settings.SilentAim = not Settings.SilentAim
         elseif kind == "esp" then
             Settings.ESP = not Settings.ESP
         elseif kind == "color" then
@@ -465,14 +425,10 @@ local function createButton(yPos, kind)
         elseif kind == "lang" then
             Settings.Language = Settings.Language == "ES" and "EN" or "ES"
             title.Text = Texts[Settings.Language].Title
-            for _, updater in ipairs(buttonUpdaters) do
-                updater()
-            end
+            for _, updater in ipairs(buttonUpdaters) do updater() end
             return
         elseif kind == "discord" then
-            if setclipboard then
-                pcall(setclipboard, DISCORD_URL)
-            end
+            if setclipboard then pcall(setclipboard, DISCORD_URL) end
             notify("YBTHU", Texts[Settings.Language].Notify, 3)
         end
         update()
@@ -483,9 +439,10 @@ local function createButton(yPos, kind)
 end
 
 createButton(50, "aim")
-createButton(95, "esp")
-createButton(140, "color")
-createButton(185, "lang")
-createButton(240, "discord")
+createButton(95, "silent")
+createButton(140, "esp")
+createButton(185, "color")
+createButton(230, "lang")
+createButton(280, "discord")
 
-print("[YBTHU BETA] Cargado correctamente - Insert para mostrar/ocultar menú")
+print("[YBTHU BETA 2] Cargado - Insert = menú | Clic derecho = aim")
