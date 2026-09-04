@@ -491,51 +491,46 @@ end
 createFOV()
 updateFOV()
 
--- ESP (Heartbeat, no cada frame pesado)
+-- ESP optimizado: un solo ciclo temporizado, sin actualizar cada frame.
 local tracked = {}
 
 task.spawn(function()
-    while task.wait(1.5) do
+    while task.wait(0.25) do
         local list = {}
+        local seen = {}
+        local color = Settings.ESPColors[Settings.ColorIndex]
+
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= LocalPlayer and p.Character then
-                table.insert(list, p.Character)
-            end
-        end
-        tracked = list
-    end
-end)
+                local model = p.Character
+                list[#list + 1] = model
+                seen[model] = true
 
-RunService.Heartbeat:Connect(function()
-    if not Settings.ESP then return end
-    local color = Settings.ESPColors[Settings.ColorIndex]
-    for _, model in pairs(tracked) do
-        if model and model.Parent and isAlive(model) then
-            local h = model:FindFirstChildOfClass("Highlight")
-            if not h then
-                h = Instance.new("Highlight")
-                h.Parent = model
-                h.FillTransparency = 0.55
-                h.OutlineTransparency = 0.2
-                h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-            end
-            h.Enabled = true
-            h.FillColor = color
-            h.OutlineColor = color
-        end
-    end
-end)
+                local h = model:FindFirstChildOfClass("Highlight")
+                if not h then
+                    h = Instance.new("Highlight")
+                    h.FillTransparency = 0.55
+                    h.OutlineTransparency = 0.2
+                    h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    h.Parent = model
+                end
 
-task.spawn(function()
-    while task.wait(1.2) do
-        if not Settings.ESP then
-            for _, model in pairs(tracked) do
-                if model and model.Parent then
-                    local h = model:FindFirstChildOfClass("Highlight")
-                    if h then h.Enabled = false end
+                h.Enabled = Settings.ESP and isAlive(model)
+                if Settings.ESP then
+                    h.FillColor = color
+                    h.OutlineColor = color
                 end
             end
         end
+
+        for _, model in pairs(tracked) do
+            if model and model.Parent and not seen[model] then
+                local h = model:FindFirstChildOfClass("Highlight")
+                if h then h.Enabled = false end
+            end
+        end
+
+        tracked = list
     end
 end)
 
