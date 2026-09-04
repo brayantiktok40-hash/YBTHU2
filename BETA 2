@@ -1,7 +1,6 @@
 -- ============================================
 -- YBTHU BETA 2 PRO
--- Aimbot + Silent Aim + ESP
--- GUI profesional + Aimbot corregido
+-- Aimbot + Silent Aim + Rage + ESP
 -- ============================================
 
 local Players = game:GetService("Players")
@@ -12,19 +11,19 @@ local StarterGui = game:GetService("StarterGui")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
--- ============================================
--- SETTINGS
--- ============================================
 local Settings = {
     Aimbot = true,
     SilentAim = true,
-    AimKey = Enum.UserInputType.MouseButton2, -- Mantén clic derecho
+    Rage = false, -- Toggle Rage ON/OFF
+    AimKey = Enum.UserInputType.MouseButton2,
     FOV = 220,
+    RageFOV = 400, -- FOV más grande en Rage
     ShowFOV = true,
     MaxDistance = 500,
     TargetPart = "Head",
-    Smoothness = 0.28,         -- Más fuerte para que se note el seguimiento
-    SilentSmoothness = 0.75,   -- Silent casi instantáneo
+    Smoothness = 0.28,
+    SilentSmoothness = 0.75,
+    RageSmoothness = 1, -- Snap total en Rage
     Prediction = 0.12,
     WallCheck = false,
     IgnoreTeam = true,
@@ -61,6 +60,7 @@ local Texts = {
         Misc = "AJUSTES",
         Aim = "Aimbot",
         Silent = "Silent Aim",
+        Rage = "Rage Aim",
         Esp = "ESP",
         Fov = "FOV Circle",
         Part = "Target Part",
@@ -78,6 +78,7 @@ local Texts = {
         Misc = "SETTINGS",
         Aim = "Aimbot",
         Silent = "Silent Aim",
+        Rage = "Rage Aim",
         Esp = "ESP",
         Fov = "FOV Circle",
         Part = "Target Part",
@@ -102,13 +103,11 @@ local Theme = {
     TextDim = Color3.fromRGB(140, 140, 155),
     On = Color3.fromRGB(50, 200, 120),
     Off = Color3.fromRGB(55, 55, 70),
+    Rage = Color3.fromRGB(220, 50, 50),
     Stroke = Color3.fromRGB(45, 45, 60),
     Discord = Color3.fromRGB(88, 101, 242),
 }
 
--- ============================================
--- UTILS
--- ============================================
 local function getGuiParent()
     if typeof(gethui) == "function" then
         local ok, hui = pcall(gethui)
@@ -155,7 +154,8 @@ local function isValidPlayer(player)
 end
 
 local function hasLineOfSight(fromPos, toPart, character)
-    if not Settings.WallCheck then return true end
+    -- En Rage se ignora wallcheck
+    if Settings.Rage or not Settings.WallCheck then return true end
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
     local filter = { Camera }
@@ -168,35 +168,38 @@ end
 
 local function getPredictedPosition(part)
     if not part then return nil end
-    if Settings.Prediction <= 0 then return part.Position end
+    local pred = Settings.Rage and (Settings.Prediction + 0.05) or Settings.Prediction
+    if pred <= 0 then return part.Position end
     local velocity = Vector3.zero
     pcall(function()
         velocity = part.AssemblyLinearVelocity or part.Velocity or Vector3.zero
     end)
-    return part.Position + velocity * Settings.Prediction
+    return part.Position + velocity * pred
 end
 
--- ============================================
--- TARGET FINDER (más fiable)
--- ============================================
+local function getActiveFOV()
+    return Settings.Rage and Settings.RageFOV or Settings.FOV
+end
+
 local currentTarget, stickyTarget = nil, nil
 local aiming = false
 
 local function getClosestTarget()
-    local closest, closestDist = nil, Settings.FOV
+    local fov = getActiveFOV()
+    local closest, closestDist = nil, fov
     local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
     local camPos = Camera.CFrame.Position
 
-    -- Sticky aim
     if Settings.StickyAim and stickyTarget and stickyTarget.Parent then
         local char = stickyTarget:FindFirstAncestorOfClass("Model") or stickyTarget.Parent
         if typeof(char) == "Instance" and char:IsA("Model") and isAlive(char) then
             local player = Players:GetPlayerFromCharacter(char)
             if player and isValidPlayer(player) then
                 local sp, onScreen = Camera:WorldToViewportPoint(stickyTarget.Position)
-                if onScreen and sp.Z > 0 then
+                -- En Rage también acepta targets un poco offscreen
+                if (onScreen and sp.Z > 0) or Settings.Rage then
                     local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                    if dist <= Settings.FOV * 1.25 and hasLineOfSight(camPos, stickyTarget, char) then
+                    if dist <= fov * 1.3 and hasLineOfSight(camPos, stickyTarget, char) then
                         return stickyTarget
                     end
                 end
@@ -213,7 +216,7 @@ local function getClosestTarget()
                 local worldDist = (camPos - part.Position).Magnitude
                 if worldDist <= Settings.MaxDistance then
                     local sp, onScreen = Camera:WorldToViewportPoint(part.Position)
-                    if onScreen and sp.Z > 0 then
+                    if (onScreen and sp.Z > 0) or Settings.Rage then
                         local screenDist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
                         if screenDist < closestDist and hasLineOfSight(camPos, part, character) then
                             closestDist = screenDist
@@ -229,9 +232,6 @@ local function getClosestTarget()
     return closest
 end
 
--- ============================================
--- AIMBOT (seguimiento fuerte)
--- ============================================
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.UserInputType == Settings.AimKey then
@@ -249,10 +249,9 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- Usar RenderStepped para mover la cámara cada frame
-RunService.RenderStepped:Connect(function(dt)
+RunService.RenderStepped:Connect(function()
     if not aiming then return end
-    if not Settings.Aimbot and not Settings.SilentAim then return end
+    if not Settings.Aimbot and not Settings.SilentAim and not Settings.Rage then return end
 
     currentTarget = getClosestTarget()
     if not currentTarget or not currentTarget.Parent then return end
@@ -260,30 +259,25 @@ RunService.RenderStepped:Connect(function(dt)
     local targetPos = getPredictedPosition(currentTarget)
     if not targetPos then return end
 
-    local camPos = Camera.CFrame.Position
-    local desired = CFrame.lookAt(camPos, targetPos)
+    local desired = CFrame.lookAt(Camera.CFrame.Position, targetPos)
 
-    -- Fuerza del aim
     local alpha
-    if Settings.SilentAim and not Settings.Aimbot then
-        alpha = 0.95 -- casi snap
+    if Settings.Rage then
+        alpha = Settings.RageSmoothness -- snap
+    elseif Settings.SilentAim and not Settings.Aimbot then
+        alpha = 0.95
     elseif Settings.SilentAim and Settings.Aimbot then
-        alpha = Settings.SilentSmoothness -- fuerte
+        alpha = Settings.SilentSmoothness
     else
-        alpha = Settings.Smoothness -- suave
+        alpha = Settings.Smoothness
     end
 
-    -- Clamp por seguridad
     alpha = math.clamp(alpha, 0.05, 1)
-
-    -- Aplicar seguimiento
     Camera.CFrame = Camera.CFrame:Lerp(desired, alpha)
 end)
 
--- ============================================
--- FOV CIRCLE
--- ============================================
-local fovGui, fovCircle
+-- FOV
+local fovGui, fovCircle, fovStroke
 
 local function createFOV()
     local p = getGuiParent()
@@ -302,11 +296,11 @@ local function createFOV()
     fovCircle.BackgroundTransparency = 1
     fovCircle.Parent = fovGui
 
-    local s = Instance.new("UIStroke")
-    s.Thickness = 1.4
-    s.Color = Theme.Accent
-    s.Transparency = 0.4
-    s.Parent = fovCircle
+    fovStroke = Instance.new("UIStroke")
+    fovStroke.Thickness = 1.4
+    fovStroke.Color = Theme.Accent
+    fovStroke.Transparency = 0.4
+    fovStroke.Parent = fovCircle
 
     Instance.new("UICorner", fovCircle).CornerRadius = UDim.new(1, 0)
 end
@@ -315,8 +309,11 @@ local function updateFOV()
     if not fovCircle then return end
     fovCircle.Visible = Settings.ShowFOV
     if Settings.ShowFOV then
-        local size = Settings.FOV * 2
+        local size = getActiveFOV() * 2
         fovCircle.Size = UDim2.fromOffset(size, size)
+        if fovStroke then
+            fovStroke.Color = Settings.Rage and Theme.Rage or Theme.Accent
+        end
     end
 end
 
@@ -326,9 +323,7 @@ RunService.RenderStepped:Connect(function()
     if Settings.ShowFOV then updateFOV() end
 end)
 
--- ============================================
 -- ESP
--- ============================================
 local tracked = {}
 
 local function refreshESP()
@@ -378,9 +373,7 @@ task.spawn(function()
     end
 end)
 
--- ============================================
--- GUI PROFESIONAL
--- ============================================
+-- GUI
 local parent = getGuiParent()
 if not parent then
     warn("[YBTHU] No se pudo crear la GUI")
@@ -399,8 +392,8 @@ screenGui.Parent = parent
 
 local window = Instance.new("Frame")
 window.Name = "Window"
-window.Size = UDim2.new(0, 280, 0, 520)
-window.Position = UDim2.new(0.02, 0, 0.2, 0)
+window.Size = UDim2.new(0, 280, 0, 560)
+window.Position = UDim2.new(0.02, 0, 0.18, 0)
 window.BackgroundColor3 = Theme.Bg
 window.BorderSizePixel = 0
 window.Active = true
@@ -521,10 +514,10 @@ content.CanvasSize = UDim2.new(0, 0, 0, 0)
 content.AutomaticCanvasSize = Enum.AutomaticSize.Y
 content.Parent = window
 
-local list = Instance.new("UIListLayout")
-list.Padding = UDim.new(0, 8)
-list.SortOrder = Enum.SortOrder.LayoutOrder
-list.Parent = content
+local listLayout = Instance.new("UIListLayout")
+listLayout.Padding = UDim.new(0, 8)
+listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+listLayout.Parent = content
 
 local function section(text, order)
     local f = Instance.new("Frame")
@@ -546,7 +539,7 @@ end
 
 local toggleRefs, labelRefs = {}, {}
 
-local function makeToggle(labelKey, settingKey, order)
+local function makeToggle(labelKey, settingKey, order, onColor)
     local row = Instance.new("Frame")
     row.Size = UDim2.new(1, 0, 0, 40)
     row.BackgroundColor3 = Theme.Card
@@ -570,7 +563,7 @@ local function makeToggle(labelKey, settingKey, order)
     local toggle = Instance.new("TextButton")
     toggle.Size = UDim2.new(0, 48, 0, 24)
     toggle.Position = UDim2.new(1, -60, 0.5, -12)
-    toggle.BackgroundColor3 = Settings[settingKey] and Theme.On or Theme.Off
+    toggle.BackgroundColor3 = Settings[settingKey] and (onColor or Theme.On) or Theme.Off
     toggle.Text = ""
     toggle.Parent = row
     Instance.new("UICorner", toggle).CornerRadius = UDim.new(1, 0)
@@ -585,13 +578,19 @@ local function makeToggle(labelKey, settingKey, order)
 
     local function refresh()
         local on = Settings[settingKey]
-        toggle.BackgroundColor3 = on and Theme.On or Theme.Off
+        toggle.BackgroundColor3 = on and (onColor or Theme.On) or Theme.Off
         knob.Position = on and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
+        name.Text = Texts[Settings.Language][labelKey]
     end
 
     toggle.MouseButton1Click:Connect(function()
         Settings[settingKey] = not Settings[settingKey]
-        if settingKey == "ShowFOV" then updateFOV() end
+        if settingKey == "ShowFOV" or settingKey == "Rage" then updateFOV() end
+        if settingKey == "Rage" and Settings.Rage then
+            notify("YBTHU", "Rage Aim: ON", 2)
+        elseif settingKey == "Rage" then
+            notify("YBTHU", "Rage Aim: OFF", 2)
+        end
         refresh()
     end)
 
@@ -662,24 +661,25 @@ end
 section(Texts[Settings.Language].Combat, 1)
 makeToggle("Aim", "Aimbot", 2)
 makeToggle("Silent", "SilentAim", 3)
-makeCycle("Part", 4, function()
+makeToggle("Rage", "Rage", 4, Theme.Rage) -- Toggle Rage rojo
+makeCycle("Part", 5, function()
     return Settings.PartNames[Settings.Language][Settings.TargetPart] or Settings.TargetPart
 end, function()
     partIndex = partIndex % #PART_CYCLE + 1
     Settings.TargetPart = PART_CYCLE[partIndex]
 end)
 
-section(Texts[Settings.Language].Visuals, 5)
-makeToggle("Esp", "ESP", 6)
-makeToggle("Fov", "ShowFOV", 7)
-makeCycle("Color", 8, function()
+section(Texts[Settings.Language].Visuals, 6)
+makeToggle("Esp", "ESP", 7)
+makeToggle("Fov", "ShowFOV", 8)
+makeCycle("Color", 9, function()
     return Settings.ColorNames[Settings.Language][Settings.ColorIndex]
 end, function()
     Settings.ColorIndex = Settings.ColorIndex % #Settings.ESPColors + 1
 end)
 
-section(Texts[Settings.Language].Misc, 9)
-makeCycle("Lang", 10, function()
+section(Texts[Settings.Language].Misc, 10)
+makeCycle("Lang", 11, function()
     return Settings.Language
 end, function()
     Settings.Language = Settings.Language == "ES" and "EN" or "ES"
@@ -700,20 +700,20 @@ end, function()
     if labelRefs.Disc then labelRefs.Disc.Text = t.Disc end
 end)
 
-makeButton("Disc", 11, Theme.Discord, function()
+makeButton("Disc", 12, Theme.Discord, function()
     if setclipboard then pcall(setclipboard, DISCORD_URL) end
     notify("YBTHU", Texts[Settings.Language].Notify, 3)
 end)
 
 local footer = Instance.new("TextLabel")
-footer.Size = UDim2.new(1, 0, 0, 28)
+footer.Size = UDim2.new(1, 0, 0, 36)
 footer.BackgroundTransparency = 1
-footer.Text = "Mantén CLIC DERECHO para apuntar\nInsert = menú"
+footer.Text = "Mantén CLIC DERECHO para apuntar\nRage = snap total + FOV grande\nInsert = menú"
 footer.TextColor3 = Theme.TextDim
 footer.Font = Enum.Font.Gotham
 footer.TextSize = 10
 footer.TextYAlignment = Enum.TextYAlignment.Top
-footer.LayoutOrder = 12
+footer.LayoutOrder = 13
 footer.Parent = content
 
 UserInputService.InputBegan:Connect(function(input, gp)
@@ -730,4 +730,4 @@ UserInputService.InputBegan:Connect(function(input, gp)
     end
 end)
 
-print("[YBTHU BETA 2 PRO] Aimbot corregido - Mantén clic derecho para seguir al target")
+print("[YBTHU BETA 2 PRO] Rage Aim disponible - actívalo/desactívalo en el menú")
