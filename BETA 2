@@ -193,7 +193,9 @@ local currentTarget, stickyTarget = nil, nil
 local aiming = false
 local lastAutoFire = 0
 local lastScan = 0
-local targetRefreshRate = 0.025
+local targetRefreshRate = 0.06
+local smoothedAimPosition = nil
+local smoothedTarget = nil
 
 local function getClosestTarget()
     local fov = getActiveFOV()
@@ -274,6 +276,8 @@ UserInputService.InputEnded:Connect(function(input)
         if not Settings.StickyAim then
             currentTarget = nil
             stickyTarget = nil
+            smoothedTarget = nil
+            smoothedAimPosition = nil
         end
     end
 end)
@@ -288,18 +292,32 @@ RunService.RenderStepped:Connect(function(dt)
     local now = os.clock()
     if now - lastScan >= targetRefreshRate or not currentTarget or not currentTarget.Parent then
         lastScan = now
-        currentTarget = getClosestTarget()
+        local nextTarget = getClosestTarget()
+        if nextTarget ~= currentTarget then
+            smoothedAimPosition = nil
+        end
+        currentTarget = nextTarget
     end
 
     if not currentTarget or not currentTarget.Parent then
         stickyTarget = nil
+        smoothedTarget = nil
+        smoothedAimPosition = nil
         return
     end
 
     local targetPos = getPredictedPosition(currentTarget)
     if not targetPos then return end
 
-    local desired = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+    -- Suaviza la predicción para que la cámara no oscile con cada cambio de velocidad.
+    if smoothedTarget ~= currentTarget or not smoothedAimPosition then
+        smoothedTarget = currentTarget
+        smoothedAimPosition = targetPos
+    else
+        smoothedAimPosition = smoothedAimPosition:Lerp(targetPos, math.clamp(dt * 8, 0.08, 0.35))
+    end
+
+    local desired = CFrame.lookAt(Camera.CFrame.Position, smoothedAimPosition)
 
     local alpha
     if Settings.Rage then
