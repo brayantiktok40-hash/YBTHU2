@@ -564,6 +564,7 @@ local function section(text, order)
 end
 
 local toggleRefs, labelRefs = {}, {}
+local lastRageToggle = 0
 
 local function makeToggle(labelKey, settingKey, order, onColor)
     local row = Instance.new("Frame")
@@ -610,10 +611,17 @@ local function makeToggle(labelKey, settingKey, order, onColor)
     end
 
     toggle.MouseButton1Click:Connect(function()
+        -- Evita que un mismo toque/clic genere dos eventos y apague Rage inmediatamente.
+        if settingKey == "Rage" then
+            local now = os.clock()
+            if now - lastRageToggle < 0.25 then return end
+            lastRageToggle = now
+        end
+
         Settings[settingKey] = not Settings[settingKey]
         if settingKey == "ShowFOV" or settingKey == "Rage" then updateFOV() end
         if settingKey == "Rage" then
-            notify("YBTHU", Settings.Rage and "Rage ON (Head + Auto)" or "Rage OFF", 2)
+            notify("YBTHU", Settings.Rage and "Rage: Head + Auto Fire ON" or "Rage: OFF", 2)
         end
         refresh()
     end)
