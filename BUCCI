@@ -1,7 +1,8 @@
 -- ============================================
--- TELEPORT PRO - Bucci
--- CON SISTEMA DE CLAVES + SELECCIÓN DE DISPOSITIVO + CAMBIO RÁPIDO
--- MOVIBLE - SIN RECORTE - PANELES MÁS GRANDES
+-- TELEPORT PRO - BUCCI
+-- Sistema de claves + Teleport + Fly + Noclip + ESP
+-- Movible - Compatible PC y Móvil
+-- Versión corregida (bugs de arrastre y memory leak)
 -- ============================================
 
 -- Arranque mínimo para Real: confirma la ejecución antes de cargar el panel completo.
@@ -15,7 +16,7 @@ do
 
     if ok and contenedor then
         local aviso = Instance.new("ScreenGui")
-        aviso.Name = "PRUBA_VG_BOOT"
+        aviso.Name = "BUCCI_BOOT"
         aviso.ResetOnSpawn = false
         aviso.IgnoreGuiInset = true
         aviso.DisplayOrder = 1000000
@@ -30,14 +31,14 @@ do
         texto.TextColor3 = Color3.fromRGB(255, 255, 255)
         texto.TextSize = 16
         texto.Font = Enum.Font.GothamBold
-        texto.Text = "✅ PRUBA VG ejecutado en Real"
+        texto.Text = "✅ BUCCI ejecutado en Real"
         texto.Parent = aviso
 
         task.delay(3, function()
             if aviso and aviso.Parent then aviso:Destroy() end
         end)
     else
-        warn("PRUBA VG: Real no permitió crear la GUI de arranque")
+        warn("BUCCI: Real no permitió crear la GUI de arranque")
     end
 end
 
@@ -46,12 +47,12 @@ print("🔐 Cargando Teleport Pro con sistema de claves...")
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 if not player then
-    warn("PRUBA VG: ejecuta el script dentro de una partida en Real")
+    warn("BUCCI: ejecuta el script dentro de una partida en Real")
     return
 end
 
 local posicionFijada = nil
-local dispositivoSeleccionado = "Celular"
+-- local dispositivoSeleccionado = "Celular"  -- (no implementado aún)
 local guiPrincipal = nil
 local ctrlConexion = nil
 local vueloConexion = nil
@@ -99,7 +100,7 @@ end
 local function crearScreenGui(nombre)
     local contenedor = obtenerContenedorGUI()
     if not contenedor then
-        warn("PRUBA VG: Real no encontró un contenedor de GUI")
+        warn("BUCCI: Real no encontró un contenedor de GUI")
         return nil
     end
 
@@ -118,7 +119,7 @@ local function crearScreenGui(nombre)
         return instancia
     end)
     if not ok or not gui then
-        warn("PRUBA VG: Real no pudo crear la GUI")
+        warn("BUCCI: Real no pudo crear la GUI")
         return nil
     end
     return gui
@@ -168,7 +169,7 @@ local function abrirDiscord()
 end
 
 local function mostrarClaveUI()
-    local gui = crearScreenGui("PRUBA_VG_KeyUI")
+    local gui = crearScreenGui("BUCCI_KeyUI")
     if not gui then return end
 
     local f = Instance.new("Frame")
@@ -197,7 +198,7 @@ local function mostrarClaveUI()
     cred.Size = UDim2.new(1, 0, 0, 20)
     cred.Position = UDim2.new(0, 0, 0, 40)
     cred.BackgroundTransparency = 1
-    cred.Text = "✨ Bucciaratichan ✨"
+    cred.Text = "✨ Bucci ✨"
     cred.TextColor3 = Color3.fromRGB(255, 0, 0)
     cred.TextSize = 12
     cred.Font = Enum.Font.GothamBold
@@ -304,24 +305,34 @@ local function mostrarClaveUI()
     status.Font = Enum.Font.Gotham
     status.Parent = f
 
-    -- ARRASTRE (Movible)
+    -- ARRASTRE (Movible) - Compatible PC (mouse) y Móvil (touch)
     local dragging = false
-    local ds = nil
-    local sp = nil
-    f.InputBegan:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.Touch then
+    local dragStart = nil
+    local startPos = nil
+    local userInputService = game:GetService("UserInputService")
+
+    f.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
-            ds = i.Position
-            sp = f.Position
+            dragStart = input.Position
+            startPos = f.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
         end
     end)
-    f.InputChanged:Connect(function(i)
-        if dragging and i.UserInputType == Enum.UserInputType.Touch then
-            local d = i.Position - ds
-            f.Position = UDim2.new(sp.X.Scale, sp.X.Offset + d.X, sp.Y.Scale, sp.Y.Offset + d.Y)
+
+    userInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            f.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
         end
     end)
-    f.InputEnded:Connect(function() dragging = false end)
 
     btn.MouseButton1Click:Connect(function()
         local clave = input.Text
@@ -453,7 +464,7 @@ local function cerrarScript()
     if guiPrincipal then guiPrincipal:Destroy() end
     guiPrincipal = nil
     posicionFijada = nil
-    print("✅ PRUBA VG: script cerrado")
+    print("✅ BUCCI: script cerrado")
 end
 
 -- ============================================
@@ -467,18 +478,23 @@ local function hacerMovibleConBoton(objeto)
     objeto.Active = true
     local userInputService = game:GetService("UserInputService")
     local arrastrando = false
-    local entradaArrastre
-    local posicionInicial
-    local posicionObjeto
+    local dragInput = nil
+    local dragStart = nil
+    local startPos = nil
+
+    local function actualizar(input)
+        local delta = input.Position - dragStart
+        objeto.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
 
     objeto.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-            or input.UserInputType == Enum.UserInputType.Touch then
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             arrastrando = true
-            entradaArrastre = input
-            posicionInicial = input.Position
-            posicionObjeto = objeto.Position
-
+            dragStart = input.Position
+            startPos = objeto.Position
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     arrastrando = false
@@ -488,30 +504,27 @@ local function hacerMovibleConBoton(objeto)
     end)
 
     objeto.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement
-            or input.UserInputType == Enum.UserInputType.Touch then
-            entradaArrastre = input
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
         end
     end)
 
-    userInputService.InputChanged:Connect(function(input)
-        if input == entradaArrastre and arrastrando then
-            local delta = input.Position - posicionInicial
-            objeto.Position = UDim2.new(
-                posicionObjeto.X.Scale,
-                posicionObjeto.X.Offset + delta.X,
-                posicionObjeto.Y.Scale,
-                posicionObjeto.Y.Offset + delta.Y
-            )
-        end
-    end)
+    -- Una sola conexión reutilizable por objeto (evita memory leak al recrear GUI)
+    if not objeto:GetAttribute("DragConnected") then
+        objeto:SetAttribute("DragConnected", true)
+        userInputService.InputChanged:Connect(function(input)
+            if input == dragInput and arrastrando then
+                actualizar(input)
+            end
+        end)
+    end
 end
 
 -- ============================================
 -- PANEL DE TELEPORT (TAMAÑOS MÁS GRANDES)
 -- ============================================
 function cargarTeleport()
-    print("✅ PRUBA VG: cargando GUI Buacciaratichan en Real")
+    print("✅ BUCCI: cargando GUI Bucci en Real")
 
     if guiPrincipal then
         guiPrincipal:Destroy()
@@ -522,7 +535,7 @@ function cargarTeleport()
         ctrlConexion = nil
     end
 
-    guiPrincipal = crearScreenGui("PRUBA_VG_MainUI")
+    guiPrincipal = crearScreenGui("BUCCI_MainUI")
     if not guiPrincipal then return end
 
     local frame = Instance.new("Frame")
@@ -542,7 +555,7 @@ function cargarTeleport()
     titulo.Size = UDim2.new(1, -45, 0, 45)
     titulo.Position = UDim2.new(0, 10, 0, 5)
     titulo.BackgroundTransparency = 1
-    titulo.Text = "🔥 Buacciaratichan"
+    titulo.Text = "🔥 Bucci"
     titulo.TextColor3 = Color3.fromRGB(255, 200, 0)
     titulo.TextSize = 22
     titulo.Font = Enum.Font.GothamBold
@@ -703,7 +716,9 @@ function cargarTeleport()
     end)
 
     local cerrarBoton = crearBoton("✕ CERRAR SCRIPT", 4, Color3.fromRGB(170, 40, 40))
-    cerrarBoton.MouseButton1Click:Connect(cerrarScript)
+    cerrarBoton.MouseButton1Click:Connect(function()
+        cerrarScript()
+    end)
 
     local discord = crearBoton("💬 DISCORD", 99, Color3.fromRGB(88, 101, 242))
     discord.MouseButton1Click:Connect(function()
@@ -716,34 +731,17 @@ function cargarTeleport()
         end
     end)
 
-    local cerrar = Instance.new("TextButton")
-    cerrar.Size = UDim2.new(0, 35, 0, 35)
-    cerrar.Position = UDim2.new(1, -84, 0, 10)
-    cerrar.BackgroundColor3 = Color3.fromRGB(170, 40, 40)
-    cerrar.BorderSizePixel = 0
-    cerrar.Text = "✕"
-    cerrar.TextColor3 = Color3.fromRGB(255, 255, 255)
-    cerrar.TextSize = 18
-    cerrar.Font = Enum.Font.GothamBold
-    cerrar.Parent = frame
-
-    local closeCorner = Instance.new("UICorner")
-    closeCorner.CornerRadius = UDim.new(0, 8)
-    closeCorner.Parent = cerrar
-    cerrar.MouseButton1Click:Connect(cerrarScript)
-
+    -- Logo minimizado
     local logo = Instance.new("TextButton")
-    logo.Size = UDim2.new(0, 65, 0, 65)
-    logo.Position = UDim2.new(0, 20, 0.5, -32)
-    logo.BackgroundColor3 = Color3.fromRGB(10, 10, 25)
-    logo.BorderSizePixel = 2
-    logo.BorderColor3 = Color3.fromRGB(255, 200, 0)
-    logo.Text = "YB"
-    logo.TextColor3 = Color3.fromRGB(255, 200, 0)
-    logo.TextSize = 22
+    logo.Size = UDim2.new(0, 50, 0, 50)
+    logo.Position = UDim2.new(0, 20, 0.5, -25)
+    logo.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+    logo.BorderSizePixel = 0
+    logo.Text = "🔥"
+    logo.TextColor3 = Color3.fromRGB(10, 10, 25)
+    logo.TextSize = 24
     logo.Font = Enum.Font.GothamBold
     logo.Visible = false
-    logo.Active = true
     logo.Parent = guiPrincipal
 
     local logoCorner = Instance.new("UICorner")
@@ -782,10 +780,11 @@ function cargarTeleport()
 
     hacerMovibleConBoton(frame)
 
-    print("✅ PRUBA VG: GUI lista - Ctrl alterna, F o FLY activa el vuelo")
+    print("✅ BUCCI: GUI lista - Ctrl alterna, F o FLY activa el vuelo")
 end
 
--- Compatibilidad con versiones anteriores que invocaban este nombre.
+-- Compatibilidad con versiones anteriores.
+-- (La selección de dispositivo aún no está implementada)
 function mostrarMenuDispositivo()
     return cargarTeleport()
 end
@@ -899,157 +898,55 @@ do
         local directo = dineroValido(espFullBuscar(fuente, nombresDirectos))
         if directo then return directo end
 
-        -- Revisa atributos cuyo nombre indique una recompensa monetaria.
-        for nombre, valor in pairs(fuente:GetAttributes()) do
-            local nombreBajo = string.lower(tostring(nombre))
-            if string.find(nombreBajo, "money", 1, true)
-                or string.find(nombreBajo, "cash", 1, true)
-                or string.find(nombreBajo, "coin", 1, true)
-                or string.find(nombreBajo, "dinero", 1, true)
-                or string.find(nombreBajo, "price", 1, true)
-                or string.find(nombreBajo, "precio", 1, true)
-                or string.find(nombreBajo, "cost", 1, true)
-                or string.find(nombreBajo, "buy", 1, true)
-                or string.find(nombreBajo, "purchase", 1, true)
-                or string.find(nombreBajo, "original", 1, true)
-                or string.find(nombreBajo, "payout", 1, true)
-                or string.find(nombreBajo, "earn", 1, true) then
-                local texto = dineroValido(espFullTexto(valor))
-                if texto then return texto end
-            end
-        end
-
-        -- Algunos juegos guardan el pago en un atributo de una pieza interna.
-        for _, descendiente in ipairs(fuente:GetDescendants()) do
-            for nombre, valor in pairs(descendiente:GetAttributes()) do
-                local nombreBajo = string.lower(tostring(nombre))
-                if string.find(nombreBajo, "money", 1, true)
-                    or string.find(nombreBajo, "cash", 1, true)
-                    or string.find(nombreBajo, "coin", 1, true)
-                    or string.find(nombreBajo, "dinero", 1, true)
-                    or string.find(nombreBajo, "payout", 1, true)
-                    or string.find(nombreBajo, "earn", 1, true) then
-                    local texto = dineroValido(espFullTexto(valor))
-                    if texto then return texto end
-                end
-            end
-        end
-
-        -- Revisa valores y etiquetas dentro del modelo del huevo.
+        -- Busca en atributos y valores de forma más amplia
         for _, hijo in ipairs(fuente:GetDescendants()) do
-            local nombreBajo = string.lower(hijo.Name or "")
-            local esDinero = string.find(nombreBajo, "money", 1, true)
-                or string.find(nombreBajo, "cash", 1, true)
-                or string.find(nombreBajo, "coin", 1, true)
-                or string.find(nombreBajo, "dinero", 1, true)
-                or string.find(nombreBajo, "payout", 1, true)
-                or string.find(nombreBajo, "earn", 1, true)
-
-            if esDinero and (hijo:IsA("StringValue") or hijo:IsA("NumberValue")
-                or hijo:IsA("IntValue") or hijo:IsA("BoolValue")) then
+            if hijo:IsA("StringValue") or hijo:IsA("NumberValue") or hijo:IsA("IntValue") then
                 local texto = dineroValido(espFullTexto(hijo.Value))
                 if texto then return texto end
             end
-
             if hijo:IsA("TextLabel") or hijo:IsA("TextButton") then
-                local texto = tostring(hijo.Text or "")
-                local textoBajo = string.lower(texto)
-                if string.find(texto, "$", 1, true)
-                    or string.find(texto, "💰", 1, true)
-                    or string.find(texto, "¢", 1, true)
-                    or string.find(textoBajo, "money", 1, true)
-                    or string.find(textoBajo, "cash", 1, true)
-                    or string.find(textoBajo, "coins", 1, true)
-                    or string.find(textoBajo, "coin", 1, true)
-                    or string.find(textoBajo, "dinero", 1, true)
-                    or string.find(textoBajo, "price", 1, true)
-                    or string.find(textoBajo, "precio", 1, true)
-                    or string.find(textoBajo, "cost", 1, true)
-                    or string.find(textoBajo, "costo", 1, true)
-                    or string.find(textoBajo, "buy", 1, true)
-                    or string.find(textoBajo, "purchase", 1, true)
-                    or string.find(textoBajo, "original", 1, true)
-                    or string.find(textoBajo, "reward", 1, true)
-                    or string.find(textoBajo, "recompensa", 1, true)
-                    or string.find(textoBajo, "sell", 1, true)
-                    or string.find(textoBajo, "venta", 1, true) then
-                    local dinero = dineroValido(texto)
-                    if dinero then return dinero end
-                end
-            end
-        end
-
-        -- Último respaldo: algunos juegos usan nombres en minúsculas o variantes
-        -- como Value/Amount junto con un contenedor relacionado con dinero.
-        for _, descendiente in ipairs(fuente:GetDescendants()) do
-            local nombreBajo = string.lower(descendiente.Name or "")
-            local esDinero = string.find(nombreBajo, "money", 1, true)
-                or string.find(nombreBajo, "cash", 1, true)
-                or string.find(nombreBajo, "coin", 1, true)
-                or string.find(nombreBajo, "dinero", 1, true)
-                or string.find(nombreBajo, "price", 1, true)
-                or string.find(nombreBajo, "precio", 1, true)
-                or string.find(nombreBajo, "cost", 1, true)
-                or string.find(nombreBajo, "payout", 1, true)
-                or string.find(nombreBajo, "reward", 1, true)
-                or string.find(nombreBajo, "amount", 1, true)
-            if esDinero and (descendiente:IsA("StringValue") or descendiente:IsA("NumberValue")
-                or descendiente:IsA("IntValue") or descendiente:IsA("FloatValue")) then
-                local texto = dineroValido(espFullTexto(descendiente.Value))
+                local texto = dineroValido(espFullTexto(hijo.Text))
                 if texto then return texto end
             end
         end
 
-        return "No detectado"
+        return "?"
     end
 
     local function espFullCrearMarcador(objeto)
-        if espFullMarcadores[objeto] or not objeto.Parent then return end
         local parte = espFullParte(objeto)
         if not parte then return end
 
-        local marcador = Instance.new("BillboardGui")
-        marcador.Name = "ESP_FULL_EggMarker"
-        marcador.Adornee = parte
-        marcador.AlwaysOnTop = true
-        marcador.Size = UDim2.new(0, 240, 0, 74)
-        marcador.StudsOffset = Vector3.new(0, 3.5, 0)
-        marcador.MaxDistance = 350
-        marcador.Parent = espFullContenedor()
-
-        local fondo = Instance.new("Frame")
-        fondo.Size = UDim2.fromScale(1, 1)
-        fondo.BackgroundColor3 = Color3.fromRGB(10, 10, 25)
-        fondo.BackgroundTransparency = 0.12
-        fondo.BorderSizePixel = 1
-        fondo.BorderColor3 = Color3.fromRGB(255, 200, 0)
-        fondo.Parent = marcador
-
-        local esquina = Instance.new("UICorner")
-        esquina.CornerRadius = UDim.new(0, 8)
-        esquina.Parent = fondo
+        local gui = Instance.new("BillboardGui")
+        gui.Name = "BUCCI_ESP_" .. objeto.Name
+        gui.Adornee = parte
+        gui.Size = UDim2.new(0, 200, 0, 50)
+        gui.StudsOffset = Vector3.new(0, 3, 0)
+        gui.AlwaysOnTop = true
+        gui.Parent = espFullContenedor()
 
         local texto = Instance.new("TextLabel")
-        texto.Name = "ESP_FULL_Info"
-        texto.Size = UDim2.new(1, -10, 1, -8)
-        texto.Position = UDim2.new(0, 5, 0, 4)
-        texto.BackgroundTransparency = 1
-        texto.TextColor3 = Color3.fromRGB(255, 255, 255)
-        texto.TextStrokeTransparency = 0.35
-        texto.TextSize = 13
+        texto.Size = UDim2.new(1, 0, 1, 0)
+        texto.BackgroundTransparency = 0.3
+        texto.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        texto.TextColor3 = Color3.fromRGB(255, 255, 0)
+        texto.TextSize = 14
         texto.Font = Enum.Font.GothamBold
-        texto.TextWrapped = true
-        texto.Text = "🥚 " .. objeto.Name .. "\nAparece: " .. espFullRecompensa(objeto) .. "\nDinero: " .. espFullDinero(objeto)
-        texto.Parent = fondo
+        texto.Text = "🥚 " .. objeto.Name
+        texto.Parent = gui
 
-        espFullMarcadores[objeto] = {gui = marcador, texto = texto}
+        local esquina = Instance.new("UICorner")
+        esquina.CornerRadius = UDim.new(0, 6)
+        esquina.Parent = texto
+
+        espFullMarcadores[objeto] = {gui = gui, texto = texto, parte = parte}
     end
 
     local function espFullEliminarMarcadores()
-        for objeto, datos in pairs(espFullMarcadores) do
+        for _, datos in pairs(espFullMarcadores) do
             if datos.gui then pcall(function() datos.gui:Destroy() end) end
-            espFullMarcadores[objeto] = nil
         end
+        espFullMarcadores = {}
     end
 
     local espFullProximaActualizacion = 0
@@ -1063,40 +960,33 @@ do
         local contenedor = espFullContenedor()
         if not contenedor then return end
         for _, hijo in ipairs(contenedor:GetChildren()) do
-            if hijo.Name == "ESP_FULL_EggMarker" then
+            if hijo.Name:find("BUCCI_ESP_") or hijo.Name:find("ESP_") then
                 pcall(function() hijo:Destroy() end)
             end
         end
     end
 
     local function espFullCantidadMarcadores()
-        local cantidad = 0
-        for _ in pairs(espFullMarcadores) do cantidad = cantidad + 1 end
-        return cantidad
+        local n = 0
+        for _ in pairs(espFullMarcadores) do n = n + 1 end
+        return n
     end
 
     local function espFullRegistrar(candidato)
-        if not espFullActivo or not candidato or not candidato.Parent then return end
         if not espFullEsHuevo(candidato) then return end
-
-        local objeto = candidato:FindFirstAncestorWhichIsA("Model") or candidato
-        if espFullCandidatos[objeto] or espFullMarcadores[objeto] then return end
-
+        if espFullMarcadores[candidato] then return end
         if espFullCantidadMarcadores() >= espFullMaxMarcadores then return end
-
-        espFullCandidatos[objeto] = true
-        pcall(function() espFullCrearMarcador(objeto) end)
+        espFullCrearMarcador(candidato)
+        espFullCandidatos[candidato] = true
     end
 
     local function espFullActualizarMarcadores()
-        if not espFullActivo then return end
-        local ahora = os.clock()
+        local ahora = tick()
         if ahora < espFullProximaActualizacion then return end
         espFullProximaActualizacion = ahora + espFullIntervalo
 
-        -- Solo actualiza marcadores registrados; nunca vuelve a recorrer todo el mapa.
         for objeto, datos in pairs(espFullMarcadores) do
-            if not objeto.Parent then
+            if not objeto.Parent or not datos.parte or not datos.parte.Parent then
                 if datos.gui then pcall(function() datos.gui:Destroy() end) end
                 espFullMarcadores[objeto] = nil
                 espFullCandidatos[objeto] = nil
