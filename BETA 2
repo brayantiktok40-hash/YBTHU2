@@ -11,7 +11,6 @@ local StarterGui = game:GetService("StarterGui")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
--- Identifica la instancia activa para que una ejecución anterior no pueda cambiar el estado.
 local Runtime = getgenv and getgenv() or _G
 local INSTANCE_TOKEN = tostring(os.clock()) .. tostring(math.random(100000, 999999))
 Runtime.__YBTHU_BETA2_TOKEN = INSTANCE_TOKEN
@@ -25,45 +24,7 @@ local function safeConnect(signal, fn)
     return conn
 end
 
-local function killScript()
-    if not running then return end
-    running = false
-    Settings.Aimbot = false
-    Settings.SilentAim = false
-    Settings.Rage = false
-    Settings.ESP = false
-    Settings.ShowFOV = false
-
-    for _, conn in ipairs(allConnections) do
-        pcall(function() conn:Disconnect() end)
-    end
-    table.clear(allConnections)
-
-    -- Quitar highlights
-    pcall(function()
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p.Character then
-                local h = p.Character:FindFirstChildOfClass("Highlight")
-                if h then h:Destroy() end
-            end
-        end
-    end)
-
-    pcall(function()
-        if fovGui then fovGui:Destroy() end
-    end)
-    pcall(function()
-        local gui = getGuiParent()
-        if gui then
-            local old = gui:FindFirstChild("YBTHU_BETA2")
-            if old then old:Destroy() end
-        end
-    end)
-
-    notify("YBTHU", "Script apagado", 3)
-    print("[YBTHU BETA 2] Script apagado correctamente")
-end
-
+-- Declaramos Settings tempr para que killScript no falle
 local Settings = {
     Aimbot = true,
     SilentAim = true,
@@ -74,8 +35,8 @@ local Settings = {
     ShowFOV = true,
     MaxDistance = 500,
     TargetPart = "Head",
-    Smoothness = 0.50,          -- Mouse aim agresivo
-    AimDeadzone = 2.5,          -- Evita temblor
+    Smoothness = 0.50,
+    AimDeadzone = 2.5,
     SilentSmoothness = 0.82,
     RageSmoothness = 1,
     Prediction = 0.14,
@@ -105,6 +66,83 @@ local Settings = {
         EN = { Head = "Head", UpperTorso = "Torso", HumanoidRootPart = "Root" },
     },
 }
+
+local fovGui -- se asigna más abajo
+
+local function killScript()
+    if running == false then return end
+    running = false
+
+    Settings.Aimbot = false
+    Settings.SilentAim = false
+    Settings.Rage = false
+    Settings.ESP = false
+    Settings.ShowFOV = false
+
+    -- Desconectar todo
+    for _, conn in ipairs(allConnections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    if table.clear then
+        table.clear(allConnections)
+    else
+        for i = #allConnections, 1, -1 do
+            allConnections[i] = nil
+        end
+    end
+
+    -- Quitar highlights
+    pcall(function()
+        for _, p in ipairs(Players:GetPlayers()) do
+            local char = p.Character
+            if char then
+                for _, child in ipairs(char:GetChildren()) do
+                    if child:IsA("Highlight") then
+                        child:Destroy()
+                    end
+                end
+            end
+        end
+    end)
+
+    pcall(function()
+        if fovGui then fovGui:Destroy() end
+    end)
+
+    -- Destruir GUI desde cualquier parent posible
+    local function destroyByName(name)
+        local parents = {}
+        pcall(function()
+            if typeof(gethui) == "function" then
+                local h = gethui()
+                if h then table.insert(parents, h) end
+            end
+        end)
+        pcall(function() table.insert(parents, game:GetService("CoreGui")) end)
+        pcall(function()
+            local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+            if pg then table.insert(parents, pg) end
+        end)
+        for _, parent in ipairs(parents) do
+            pcall(function()
+                local obj = parent:FindFirstChild(name)
+                if obj then obj:Destroy() end
+            end)
+        end
+    end
+
+    destroyByName("YBTHU_BETA2")
+    destroyByName("YBTHU_FOV")
+
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = "YBTHU",
+            Text = "Script apagado",
+            Duration = 3,
+        })
+    end)
+    print("[YBTHU BETA 2] Script apagado correctamente")
+end
 
 local Texts = {
     ES = {
@@ -294,12 +332,10 @@ local function getClosestTarget()
     return closest
 end
 
--- Auto fire SIN yield (nunca task.wait aquí)
 local function doAutoFire()
     local now = tick()
     if now - lastAutoFire < Settings.AutoFireRate then return end
     lastAutoFire = now
-
     pcall(function()
         if typeof(mouse1click) == "function" then
             mouse1click()
@@ -308,7 +344,6 @@ local function doAutoFire()
         if typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then
             mouse1press()
             mouse1release()
-            return
         end
     end)
 end
@@ -332,7 +367,6 @@ safeConnect(UserInputService.InputEnded, function(input)
     end
 end)
 
--- UN solo loop de aim (ligero)
 safeConnect(RunService.RenderStepped, function(dt)
     if not running then return end
     local mouseHeld = false
@@ -381,7 +415,6 @@ safeConnect(RunService.RenderStepped, function(dt)
         alpha = Settings.Smoothness
     end
 
-    -- Aimbot / Rage: mueve el MOUSE (no la cámara)
     if Settings.Aimbot or Settings.Rage then
         local screenPoint, onScreen = Camera:WorldToViewportPoint(smoothedAimPosition)
         if onScreen and screenPoint.Z > 0 then
@@ -390,7 +423,6 @@ safeConnect(RunService.RenderStepped, function(dt)
             local deltaY = screenPoint.Y - screenCenter.Y
             local screenOffset = math.sqrt(deltaX * deltaX + deltaY * deltaY)
 
-            -- Deadzone para que no tiemble
             if screenOffset > Settings.AimDeadzone then
                 local frameAlpha = 1 - math.pow(1 - math.clamp(alpha, 0.05, 1), math.clamp(dt * 60, 0.5, 2.2))
                 local moveX = deltaX * frameAlpha
@@ -405,14 +437,12 @@ safeConnect(RunService.RenderStepped, function(dt)
         end
     end
 
-    -- Rage auto fire (sin wait)
     if Settings.Rage then
         doAutoFire()
     end
 end)
 
--- FOV
-local fovGui, fovCircle, fovStroke
+local fovCircle, fovStroke
 
 local function createFOV()
     local p = getGuiParent()
@@ -454,7 +484,6 @@ end
 createFOV()
 updateFOV()
 
--- ESP
 local tracked = {}
 
 task.spawn(function()
@@ -504,7 +533,6 @@ task.spawn(function()
     end
 end)
 
--- GUI
 local parent = getGuiParent()
 if not parent then
     warn("[YBTHU] No GUI parent")
@@ -813,7 +841,7 @@ makeButton("Disc", 12, Theme.Discord, function()
 end)
 
 makeButton("Kill", 13, Theme.Rage, function()
-    killScript()
+    pcall(killScript)
 end)
 
 local footer = Instance.new("TextLabel")
@@ -840,4 +868,4 @@ safeConnect(UserInputService.InputBegan, function(input, gp)
     end
 end)
 
-print("[YBTHU BETA 2 PRO] Mouse Aim activo - botón APAGAR disponible")
+print("[YBTHU BETA 2 PRO] Mouse Aim activo - APAGAR SCRIPT arreglado")
