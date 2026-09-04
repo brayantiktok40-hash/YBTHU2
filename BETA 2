@@ -11,6 +11,11 @@ local StarterGui = game:GetService("StarterGui")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
+-- Identifica la instancia activa para que una ejecución anterior no pueda cambiar el estado.
+local Runtime = getgenv and getgenv() or _G
+local INSTANCE_TOKEN = tostring(os.clock()) .. tostring(math.random(100000, 999999))
+Runtime.__YBTHU_BETA2_TOKEN = INSTANCE_TOKEN
+
 local Settings = {
     Aimbot = true,
     SilentAim = true,
@@ -565,6 +570,7 @@ end
 
 local toggleRefs, labelRefs = {}, {}
 local lastRageToggle = 0
+local rageToggleGuard = false
 
 local function makeToggle(labelKey, settingKey, order, onColor)
     local row = Instance.new("Frame")
@@ -612,10 +618,13 @@ local function makeToggle(labelKey, settingKey, order, onColor)
 
     toggle.MouseButton1Click:Connect(function()
         -- Evita que un mismo toque/clic genere dos eventos y apague Rage inmediatamente.
+        if Runtime.__YBTHU_BETA2_TOKEN ~= INSTANCE_TOKEN then return end
         if settingKey == "Rage" then
             local now = os.clock()
-            if now - lastRageToggle < 0.25 then return end
+            if rageToggleGuard or now - lastRageToggle < 1 then return end
             lastRageToggle = now
+            rageToggleGuard = true
+            task.delay(1, function() rageToggleGuard = false end)
         end
 
         Settings[settingKey] = not Settings[settingKey]
