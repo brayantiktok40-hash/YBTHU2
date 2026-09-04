@@ -27,6 +27,7 @@ local Settings = {
     MaxDistance = 500,
     TargetPart = "Head",
     Smoothness = 0.28,
+    AimDeadzone = 4,
     SilentSmoothness = 0.75,
     RageSmoothness = 1,
     Prediction = 0.12,
@@ -332,8 +333,14 @@ RunService.RenderStepped:Connect(function(dt)
 
     -- Silent Aim no debe mover la cámara por sí solo; Aimbot y Rage sí la siguen.
     if Settings.Aimbot or Settings.Rage then
-        local frameAlpha = 1 - math.pow(1 - math.clamp(alpha, 0.05, 1), math.clamp(dt * 60, 0.5, 2))
-        Camera.CFrame = Camera.CFrame:Lerp(desired, frameAlpha)
+        local screenPoint, onScreen = Camera:WorldToViewportPoint(smoothedAimPosition)
+        local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+        local screenOffset = (Vector2.new(screenPoint.X, screenPoint.Y) - screenCenter).Magnitude
+        -- Evita microcorrecciones cuando la mira ya está prácticamente centrada.
+        if not onScreen or screenOffset > Settings.AimDeadzone then
+            local frameAlpha = 1 - math.pow(1 - math.clamp(alpha, 0.05, 1), math.clamp(dt * 60, 0.5, 2))
+            Camera.CFrame = Camera.CFrame:Lerp(desired, frameAlpha)
+        end
     end
 
     -- Rage auto fire (sin wait)
