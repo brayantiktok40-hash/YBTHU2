@@ -9,18 +9,18 @@ local player = Players.LocalPlayer
 local mouse = player:GetMouse()
 local camera = workspace.CurrentCamera
 
-local aiming = false
-local target = nil
-local TargetPart = "Head"
+local autoAiming = false
+local autoTarget = nil
+local AutoTargetPart = "Head"
 
 local function validTarget(plr)
-	if plr == player then return false end
+	if not plr or plr == player then return false end
 
 	local character = plr.Character
 	if not character then return false end
 
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	local part = character:FindFirstChild(TargetPart)
+	local part = character:FindFirstChild(AutoTargetPart)
 
 	return humanoid
 		and humanoid.Health > 0
@@ -33,7 +33,7 @@ local function getClosestTarget()
 
 	for _, plr in ipairs(Players:GetPlayers()) do
 		if validTarget(plr) then
-			local part = plr.Character:FindFirstChild(TargetPart)
+			local part = plr.Character:FindFirstChild(AutoTargetPart)
 
 			local screenPos, visible =
 				camera:WorldToViewportPoint(part.Position)
@@ -60,42 +60,46 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
 
 	if input.UserInputType == Enum.UserInputType.MouseButton2 then
-		aiming = true
-		target = getClosestTarget()
+					autoAiming = true
+			autoTarget = getClosestTarget()
+
 	end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton2 then
-		aiming = false
-		target = nil
+					autoAiming = false
+			autoTarget = nil
+
 	end
 end)
 
 -- Actualiza continuamente el objetivo mientras apuntas
 RunService.RenderStepped:Connect(function()
-	if not aiming then
-		target = nil
+	if not autoAiming then
+		autoTarget = nil
 		return
 	end
 
-	if not target
-		or not target.Parent
-		or not validTarget(Players:GetPlayerFromCharacter(target.Parent)) then
+			if not autoTarget
+			or not autoTarget.Parent
+			or not validTarget(Players:GetPlayerFromCharacter(autoTarget.Parent)) then
 
-		target = getClosestTarget()
-	end-- ============================================
+
+			autoTarget = getClosestTarget()
+		end
+	end)
+
+-- ============================================
+
 -- YBTHU BETA - Aimbot + ESP (Versión Corregida)
 -- Un solo aimbot suave, menú movible, compatible
 -- ============================================
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
+-- Servicios compartidos con el bloque AUTOMATIZE.
 local StarterGui = game:GetService("StarterGui")
-
-local localPlayer = Players.LocalPlayer
-local camera = workspace.CurrentCamera
+local localPlayer = player
+-- `Players`, `RunService`, `UserInputService` y `camera` ya están definidos arriba.
 
 -- ============================================
 -- CONFIGURACIÓN
@@ -489,12 +493,11 @@ createButton(185, "lang")
 createButton(240, "discord")
 
 print("[YBTHU BETA] Cargado correctamente - Insert para mostrar/ocultar menú")
-end)
 
 -- Función que puede utilizar tu sistema de armas
 _G.GetAutomatizeTarget = function()
-	if aiming and target then
-		return target
+	if autoAiming and autoTarget then
+		return autoTarget
 	end
 
 	return nil
