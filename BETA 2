@@ -1,29 +1,31 @@
 -- ============================================
 -- YBTHU BETA 2 PRO
--- Aimbot + Silent Aim + Rage + ESP
+-- Aimbot + Silent Aim + Rage (Head + Auto Fire) + ESP
 -- ============================================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
 
 local Settings = {
     Aimbot = true,
     SilentAim = true,
-    Rage = false, -- Toggle Rage ON/OFF
+    Rage = false,
     AimKey = Enum.UserInputType.MouseButton2,
     FOV = 220,
-    RageFOV = 400, -- FOV más grande en Rage
+    RageFOV = 450,
     ShowFOV = true,
     MaxDistance = 500,
     TargetPart = "Head",
     Smoothness = 0.28,
     SilentSmoothness = 0.75,
-    RageSmoothness = 1, -- Snap total en Rage
+    RageSmoothness = 1,
     Prediction = 0.12,
     WallCheck = false,
     IgnoreTeam = true,
@@ -33,6 +35,7 @@ local Settings = {
     Language = "ES",
     MenuKey = Enum.KeyCode.Insert,
     Visible = true,
+    AutoFireRate = 0.08, -- segundos entre disparos en Rage
 
     ESPColors = {
         Color3.fromRGB(255, 255, 255),
@@ -130,8 +133,13 @@ end
 
 notify("YBTHU", Texts[Settings.Language].Credit, 5)
 
+-- En Rage siempre apunta a la cabeza
 local function getPart(character)
     if not character then return nil end
+    if Settings.Rage then
+        return character:FindFirstChild("Head")
+            or character:FindFirstChild("HumanoidRootPart")
+    end
     return character:FindFirstChild(Settings.TargetPart)
         or character:FindFirstChild("Head")
         or character:FindFirstChild("UpperTorso")
@@ -154,7 +162,6 @@ local function isValidPlayer(player)
 end
 
 local function hasLineOfSight(fromPos, toPart, character)
-    -- En Rage se ignora wallcheck
     if Settings.Rage or not Settings.WallCheck then return true end
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
@@ -168,7 +175,7 @@ end
 
 local function getPredictedPosition(part)
     if not part then return nil end
-    local pred = Settings.Rage and (Settings.Prediction + 0.05) or Settings.Prediction
+    local pred = Settings.Rage and (Settings.Prediction + 0.06) or Settings.Prediction
     if pred <= 0 then return part.Position end
     local velocity = Vector3.zero
     pcall(function()
@@ -183,6 +190,7 @@ end
 
 local currentTarget, stickyTarget = nil, nil
 local aiming = false
+local lastAutoFire = 0
 
 local function getClosestTarget()
     local fov = getActiveFOV()
@@ -196,10 +204,9 @@ local function getClosestTarget()
             local player = Players:GetPlayerFromCharacter(char)
             if player and isValidPlayer(player) then
                 local sp, onScreen = Camera:WorldToViewportPoint(stickyTarget.Position)
-                -- En Rage también acepta targets un poco offscreen
                 if (onScreen and sp.Z > 0) or Settings.Rage then
                     local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                    if dist <= fov * 1.3 and hasLineOfSight(camPos, stickyTarget, char) then
+                    if dist <= fov * 1.35 and hasLineOfSight(camPos, stickyTarget, char) then
                         return stickyTarget
                     end
                 end
@@ -232,6 +239,66 @@ local function getClosestTarget()
     return closest
 end
 
+-- Auto click (Rage)
+local function doAutoFire()
+    local now = tick()
+    if now - lastAutoFire < Settings.AutoFireRate then return end
+    lastAutoFire = now
+
+    -- Varios métodos según el executor / cliente
+    local ok = false
+
+    -- 1) mouse1click (muchos executors)
+    if typeof(mouse1click) == "function" then
+        pcall(mouse1click)
+        ok = true
+    end
+
+    -- 2) VirtualInputManager
+    if not ok then
+        pcall(function()
+            local vim = VirtualInputManager
+            vim:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+            task.wait()
+            vim:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+            ok = true
+        end)
+    end
+
+    -- 3) Fallback: simular con UserInputService no siempre funciona; se omite
+end
+
+-- Silent Aim hacia la cabeza (redirige mouse.Hit cuando hay target)
+do
+    pcall(function()
+        if not (hookmetamethod and newcclosure and getrawmetatable) then return end
+
+        -- Hook solo del Mouse (más seguro que hookear todo game)
+        local mouse = Mouse
+        local mt = getrawmetatable(mouse)
+        if not mt then return end
+
+        local oldIndex = mt.__index
+        setreadonly(mt, false)
+
+        mt.__index = newcclosure(function(self, key)
+            if self == mouse and currentTarget and currentTarget.Parent then
+                local useSilent = Settings.SilentAim or Settings.Rage
+                if useSilent and (key == "Hit" or key == "Target") then
+                    if key == "Hit" then
+                        return CFrame.new(currentTarget.Position)
+                    elseif key == "Target" then
+                        return currentTarget
+                    end
+                end
+            end
+            return oldIndex(self, key)
+        end)
+
+        setreadonly(mt, true)
+    end)
+end
+
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.UserInputType == Settings.AimKey then
@@ -250,7 +317,16 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 RunService.RenderStepped:Connect(function()
-    if not aiming then return end
+    -- Rage: busca target siempre que esté ON (no solo con clic derecho)
+    -- Aimbot/Silent normales: solo con clic derecho
+    local shouldAim = aiming or Settings.Rage
+    if not shouldAim then
+        if not Settings.Rage then
+            currentTarget = nil
+        end
+        return
+    end
+
     if not Settings.Aimbot and not Settings.SilentAim and not Settings.Rage then return end
 
     currentTarget = getClosestTarget()
@@ -263,7 +339,7 @@ RunService.RenderStepped:Connect(function()
 
     local alpha
     if Settings.Rage then
-        alpha = Settings.RageSmoothness -- snap
+        alpha = Settings.RageSmoothness
     elseif Settings.SilentAim and not Settings.Aimbot then
         alpha = 0.95
     elseif Settings.SilentAim and Settings.Aimbot then
@@ -274,6 +350,11 @@ RunService.RenderStepped:Connect(function()
 
     alpha = math.clamp(alpha, 0.05, 1)
     Camera.CFrame = Camera.CFrame:Lerp(desired, alpha)
+
+    -- Rage: auto fire a la cabeza mientras hay target
+    if Settings.Rage and currentTarget then
+        doAutoFire()
+    end
 end)
 
 -- FOV
@@ -401,9 +482,7 @@ window.ClipsDescendants = true
 window.Parent = screenGui
 Instance.new("UICorner", window).CornerRadius = UDim.new(0, 14)
 
-local windowStroke = Instance.new("UIStroke", window)
-windowStroke.Color = Theme.Stroke
-windowStroke.Thickness = 1.2
+Instance.new("UIStroke", window).Color = Theme.Stroke
 
 local header = Instance.new("Frame")
 header.Size = UDim2.new(1, 0, 0, 56)
@@ -534,7 +613,6 @@ local function section(text, order)
     l.TextSize = 11
     l.TextXAlignment = Enum.TextXAlignment.Left
     l.Parent = f
-    return l
 end
 
 local toggleRefs, labelRefs = {}, {}
@@ -586,10 +664,8 @@ local function makeToggle(labelKey, settingKey, order, onColor)
     toggle.MouseButton1Click:Connect(function()
         Settings[settingKey] = not Settings[settingKey]
         if settingKey == "ShowFOV" or settingKey == "Rage" then updateFOV() end
-        if settingKey == "Rage" and Settings.Rage then
-            notify("YBTHU", "Rage Aim: ON", 2)
-        elseif settingKey == "Rage" then
-            notify("YBTHU", "Rage Aim: OFF", 2)
+        if settingKey == "Rage" then
+            notify("YBTHU", Settings.Rage and "Rage: Head + Auto Fire ON" or "Rage: OFF", 2)
         end
         refresh()
     end)
@@ -661,10 +737,12 @@ end
 section(Texts[Settings.Language].Combat, 1)
 makeToggle("Aim", "Aimbot", 2)
 makeToggle("Silent", "SilentAim", 3)
-makeToggle("Rage", "Rage", 4, Theme.Rage) -- Toggle Rage rojo
+makeToggle("Rage", "Rage", 4, Theme.Rage)
 makeCycle("Part", 5, function()
+    if Settings.Rage then return "Cabeza (Rage)" end
     return Settings.PartNames[Settings.Language][Settings.TargetPart] or Settings.TargetPart
 end, function()
+    if Settings.Rage then return end -- en Rage siempre cabeza
     partIndex = partIndex % #PART_CYCLE + 1
     Settings.TargetPart = PART_CYCLE[partIndex]
 end)
@@ -706,9 +784,9 @@ makeButton("Disc", 12, Theme.Discord, function()
 end)
 
 local footer = Instance.new("TextLabel")
-footer.Size = UDim2.new(1, 0, 0, 36)
+footer.Size = UDim2.new(1, 0, 0, 48)
 footer.BackgroundTransparency = 1
-footer.Text = "Mantén CLIC DERECHO para apuntar\nRage = snap total + FOV grande\nInsert = menú"
+footer.Text = "Rage ON = Head + Auto Fire\nClic derecho = aim normal\nInsert = menú"
 footer.TextColor3 = Theme.TextDim
 footer.Font = Enum.Font.Gotham
 footer.TextSize = 10
@@ -730,4 +808,4 @@ UserInputService.InputBegan:Connect(function(input, gp)
     end
 end)
 
-print("[YBTHU BETA 2 PRO] Rage Aim disponible - actívalo/desactívalo en el menú")
+print("[YBTHU BETA 2 PRO] Rage = Head lock + Auto Fire (toggle en menú)")
