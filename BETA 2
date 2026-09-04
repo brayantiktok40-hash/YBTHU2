@@ -21,7 +21,7 @@ local Settings = {
     SilentAim = true,
     Rage = false,
     AimKey = Enum.UserInputType.MouseButton2,
-    FOV = 220,
+    FOV = 300,
     RageFOV = 400,
     ShowFOV = true,
     MaxDistance = 500,
@@ -285,7 +285,12 @@ end)
 
 -- UN solo loop de aim (ligero)
 RunService.RenderStepped:Connect(function(dt)
-    local shouldAim = aiming or Settings.Rage
+    -- Comprueba también el estado real del botón para no perder InputBegan/InputEnded.
+    local mouseHeld = false
+    pcall(function()
+        mouseHeld = UserInputService:IsMouseButtonPressed(Settings.AimKey)
+    end)
+    local shouldAim = Settings.Rage or ((Settings.Aimbot or Settings.SilentAim) and (aiming or mouseHeld))
     if not shouldAim then return end
     if not Settings.Aimbot and not Settings.SilentAim and not Settings.Rage then return end
 
