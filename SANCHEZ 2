@@ -1,0 +1,501 @@
+-- AUTOMATIZE - seguimiento por mouse
+-- Para tu propio juego en Roblox Studio
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local mouse = player:GetMouse()
+local camera = workspace.CurrentCamera
+
+local aiming = false
+local target = nil
+local TargetPart = "Head"
+
+local function validTarget(plr)
+	if plr == player then return false end
+
+	local character = plr.Character
+	if not character then return false end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local part = character:FindFirstChild(TargetPart)
+
+	return humanoid
+		and humanoid.Health > 0
+		and part ~= nil
+end
+
+local function getClosestTarget()
+	local closest = nil
+	local closestDistance = math.huge
+
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if validTarget(plr) then
+			local part = plr.Character:FindFirstChild(TargetPart)
+
+			local screenPos, visible =
+				camera:WorldToViewportPoint(part.Position)
+
+			if visible and screenPos.Z > 0 then
+				local mousePos = Vector2.new(mouse.X, mouse.Y)
+				local targetPos = Vector2.new(screenPos.X, screenPos.Y)
+
+				local distance = (targetPos - mousePos).Magnitude
+
+				if distance < closestDistance then
+					closestDistance = distance
+					closest = part
+				end
+			end
+		end
+	end
+
+	return closest
+end
+
+-- Mantener presionado clic derecho = seguimiento
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		aiming = true
+		target = getClosestTarget()
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		aiming = false
+		target = nil
+	end
+end)
+
+-- Actualiza continuamente el objetivo mientras apuntas
+RunService.RenderStepped:Connect(function()
+	if not aiming then
+		target = nil
+		return
+	end
+
+	if not target
+		or not target.Parent
+		or not validTarget(Players:GetPlayerFromCharacter(target.Parent)) then
+
+		target = getClosestTarget()
+	end-- ============================================
+-- YBTHU BETA - Aimbot + ESP (Versión Corregida)
+-- Un solo aimbot suave, menú movible, compatible
+-- ============================================
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local StarterGui = game:GetService("StarterGui")
+
+local localPlayer = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+-- ============================================
+-- CONFIGURACIÓN
+-- ============================================
+local Settings = {
+    Aimbot = true,
+    ESP = true,
+    Language = "ES", -- ES / EN
+    AimKey = Enum.UserInputType.MouseButton2,
+    MenuKey = Enum.KeyCode.Insert,
+    Visible = true,
+    FOV = 180,
+    ColorIndex = 1,
+    Smoothness = 0.14,
+    MaxDistance = 150,
+    RequireLineOfSight = true,
+    IgnoreSameTeam = true,
+
+    ESPColors = {
+        Color3.fromRGB(255, 255, 255),
+        Color3.fromRGB(255, 50, 50),
+        Color3.fromRGB(50, 255, 50),
+        Color3.fromRGB(50, 120, 255),
+    },
+
+    ColorNames = {
+        ES = {"BLANCO", "ROJO", "VERDE", "AZUL"},
+        EN = {"WHITE", "RED", "GREEN", "BLUE"},
+    },
+}
+
+local Texts = {
+    ES = {
+        Title = "YBTHU BETA",
+        Aim = "AIMBOT",
+        Esp = "ESP",
+        Color = "COLOR",
+        Lang = "IDIOMA: ES",
+        Disc = "DISCORD",
+        Notify = "¡Link copiado!",
+        Credit = "Creado por Brayan (YBTHU)",
+    },
+    EN = {
+        Title = "YBTHU BETA",
+        Aim = "AIMBOT",
+        Esp = "ESP",
+        Color = "COLOR",
+        Lang = "LANG: EN",
+        Disc = "DISCORD",
+        Notify = "Link copied!",
+        Credit = "Created by Brayan (YBTHU)",
+    },
+}
+
+local DISCORD_URL = "https://discord.gg/b9mvbR6rq"
+
+-- ============================================
+-- CONTENEDOR GUI SEGURO
+-- ============================================
+local function getGuiParent()
+    if typeof(gethui) == "function" then
+        local ok, hui = pcall(gethui)
+        if ok and hui then return hui end
+    end
+    local ok, core = pcall(function()
+        return game:GetService("CoreGui")
+    end)
+    if ok and core then return core end
+    return localPlayer:WaitForChild("PlayerGui", 5)
+end
+
+-- ============================================
+-- NOTIFICACIÓN SEGURA
+-- ============================================
+local function notify(title, text, duration)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = title,
+            Text = text,
+            Duration = duration or 4,
+        })
+    end)
+end
+
+notify("YBTHU", Texts[Settings.Language].Credit, 5)
+
+-- ============================================
+-- AIMBOT SUAVE (único sistema)
+-- ============================================
+local aiming = false
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.UserInputType == Settings.AimKey then
+        aiming = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Settings.AimKey then
+        aiming = false
+    end
+end)
+
+local function getTorso(character)
+    return character:FindFirstChild("UpperTorso")
+        or character:FindFirstChild("Torso")
+        or character:FindFirstChild("HumanoidRootPart")
+end
+
+local function isValidTarget(player)
+    if player == localPlayer then return false end
+    if Settings.IgnoreSameTeam and player.Team and localPlayer.Team and player.Team == localPlayer.Team then
+        return false
+    end
+
+    local character = player.Character
+    if not character then return false end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local torso = getTorso(character)
+    if not humanoid or humanoid.Health <= 0 or not torso then
+        return false
+    end
+
+    local distance = (torso.Position - camera.CFrame.Position).Magnitude
+    if distance > Settings.MaxDistance then
+        return false
+    end
+
+    if Settings.RequireLineOfSight then
+        local origin = camera.CFrame.Position
+        local direction = torso.Position - origin
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+
+        local filterList = {camera}
+        if localPlayer.Character then
+            table.insert(filterList, localPlayer.Character)
+        end
+        params.FilterDescendantsInstances = filterList
+
+        local result = workspace:Raycast(origin, direction, params)
+        if result and not result.Instance:IsDescendantOf(character) then
+            return false
+        end
+    end
+
+    return true, torso
+end
+
+local function getBestTarget()
+    local screenCenter = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+    local bestTorso = nil
+    local bestScore = Settings.FOV
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        local valid, torso = isValidTarget(player)
+        if valid then
+            local screenPoint, onScreen = camera:WorldToViewportPoint(torso.Position)
+            if onScreen and screenPoint.Z > 0 then
+                local point = Vector2.new(screenPoint.X, screenPoint.Y)
+                local dist = (point - screenCenter).Magnitude
+                if dist < bestScore then
+                    bestScore = dist
+                    bestTorso = torso
+                end
+            end
+        end
+    end
+
+    return bestTorso
+end
+
+RunService:BindToRenderStep("YBTHU_AimAssist", Enum.RenderPriority.Camera.Value + 1, function()
+    if not Settings.Aimbot or not aiming then return end
+
+    local torso = getBestTarget()
+    if not torso then return end
+
+    local camPos = camera.CFrame.Position
+    local desired = CFrame.lookAt(camPos, torso.Position)
+    camera.CFrame = camera.CFrame:Lerp(desired, Settings.Smoothness)
+end)
+
+-- ============================================
+-- ESP (Highlight)
+-- ============================================
+local tracked = {}
+
+local function refreshTargets()
+    local list = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= localPlayer and player.Character then
+            table.insert(list, player.Character)
+        end
+    end
+    for _, model in ipairs(workspace:GetChildren()) do
+        if model:IsA("Model") and model:FindFirstChildOfClass("Humanoid") and model ~= localPlayer.Character then
+            table.insert(list, model)
+        end
+    end
+    tracked = list
+end
+
+task.spawn(function()
+    while true do
+        task.wait(1.5)
+        refreshTargets()
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    local color = Settings.ESPColors[Settings.ColorIndex]
+
+    for _, model in pairs(tracked) do
+        if model and model.Parent then
+            local humanoid = model:FindFirstChildOfClass("Humanoid")
+            if humanoid and humanoid.Health > 0 then
+                local highlight = model:FindFirstChildOfClass("Highlight")
+
+                if Settings.ESP then
+                    if not highlight then
+                        highlight = Instance.new("Highlight")
+                        highlight.Parent = model
+                        highlight.FillTransparency = 0.6
+                        highlight.OutlineTransparency = 0.2
+                    end
+                    highlight.Enabled = true
+                    highlight.FillColor = color
+                    highlight.OutlineColor = color
+                    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                elseif highlight then
+                    highlight.Enabled = false
+                end
+            end
+        end
+    end
+end)
+
+-- ============================================
+-- MENÚ
+-- ============================================
+local parent = getGuiParent()
+if not parent then
+    warn("[YBTHU] No se pudo crear la GUI")
+    return
+end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "YBTHU_BETA"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = parent
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 210, 0, 320)
+frame.Position = UDim2.new(0.02, 0, 0.35, 0)
+frame.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Parent = screenGui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 10)
+corner.Parent = frame
+
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(255, 215, 0)
+stroke.Thickness = 1.8
+stroke.Parent = frame
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 40)
+title.BackgroundTransparency = 1
+title.Text = Texts[Settings.Language].Title
+title.TextColor3 = Color3.fromRGB(255, 215, 0)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 18
+title.Parent = frame
+
+-- Arrastre moderno (reemplaza .Draggable)
+do
+    local dragging = false
+    local dragStart, startPos
+
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+-- Toggle menú con Insert
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Settings.MenuKey then
+        Settings.Visible = not Settings.Visible
+        frame.Visible = Settings.Visible
+    end
+end)
+
+local buttonUpdaters = {}
+
+local function createButton(yPos, kind)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.9, 0, 0, 36)
+    btn.Position = UDim2.new(0.05, 0, 0, yPos)
+    btn.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.GothamMedium
+    btn.TextSize = 13
+    btn.Parent = frame
+
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 6)
+    c.Parent = btn
+
+    local function update()
+        local t = Texts[Settings.Language]
+        if kind == "aim" then
+            btn.Text = t.Aim .. (Settings.Aimbot and ": ON" or ": OFF")
+            btn.BackgroundColor3 = Settings.Aimbot and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(120, 40, 40)
+        elseif kind == "esp" then
+            btn.Text = t.Esp .. (Settings.ESP and ": ON" or ": OFF")
+            btn.BackgroundColor3 = Settings.ESP and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(120, 40, 40)
+        elseif kind == "color" then
+            btn.Text = t.Color .. ": " .. Settings.ColorNames[Settings.Language][Settings.ColorIndex]
+            btn.TextColor3 = Settings.ESPColors[Settings.ColorIndex]
+            btn.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+        elseif kind == "lang" then
+            btn.Text = t.Lang
+            btn.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+            btn.TextColor3 = Color3.new(1, 1, 1)
+        elseif kind == "discord" then
+            btn.Text = t.Disc
+            btn.BackgroundColor3 = Color3.fromRGB(88, 101, 242)
+            btn.TextColor3 = Color3.new(1, 1, 1)
+        end
+    end
+
+    btn.MouseButton1Click:Connect(function()
+        if kind == "aim" then
+            Settings.Aimbot = not Settings.Aimbot
+        elseif kind == "esp" then
+            Settings.ESP = not Settings.ESP
+        elseif kind == "color" then
+            Settings.ColorIndex = Settings.ColorIndex % #Settings.ESPColors + 1
+        elseif kind == "lang" then
+            Settings.Language = Settings.Language == "ES" and "EN" or "ES"
+            title.Text = Texts[Settings.Language].Title
+            for _, updater in ipairs(buttonUpdaters) do
+                updater()
+            end
+            return
+        elseif kind == "discord" then
+            if setclipboard then
+                pcall(setclipboard, DISCORD_URL)
+            end
+            notify("YBTHU", Texts[Settings.Language].Notify, 3)
+        end
+        update()
+    end)
+
+    table.insert(buttonUpdaters, update)
+    update()
+end
+
+createButton(50, "aim")
+createButton(95, "esp")
+createButton(140, "color")
+createButton(185, "lang")
+createButton(240, "discord")
+
+print("[YBTHU BETA] Cargado correctamente - Insert para mostrar/ocultar menú")
+end)
+
+-- Función que puede utilizar tu sistema de armas
+_G.GetAutomatizeTarget = function()
+	if aiming and target then
+		return target
+	end
+
+	return nil
+end
