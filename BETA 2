@@ -1,5 +1,5 @@
 -- ============================================
--- YBTHU BETA 2 PRO (MOUSE AIM v2 - MEJORADO)
+-- YBTHU BETA 2 PRO (MOUSE AIM v2 - PEGAJOSO)
 -- Aimbot mouse mejorado + Silent + Rage + ESP + Kill
 -- ============================================
 
@@ -36,13 +36,13 @@ local Settings = {
     ShowFOV = true,
     MaxDistance = 500,
     TargetPart = "Head",
-    Smoothness = 0.62,
-    AimDeadzone = 1.8,
-    SilentSmoothness = 0.88,
+    Smoothness = 0.82,          -- Muy pegajoso
+    AimDeadzone = 1.2,          -- Más preciso
+    SilentSmoothness = 0.92,
     RageSmoothness = 1,
     Prediction = 0.165,
-    MouseAccel = 1.15,
-    TargetRefresh = 0.04,
+    MouseAccel = 1.35,          -- Más agarre
+    TargetRefresh = 0.03,
     WallCheck = false,
     IgnoreTeam = true,
     StickyAim = true,
@@ -272,7 +272,6 @@ local function getPredictedPosition(part)
         velocity = src.AssemblyLinearVelocity or src.Velocity or Vector3.zero
     end)
 
-    -- Menos vertical = no se dispara hacia arriba en saltos
     local horizontal = Vector3.new(velocity.X, velocity.Y * 0.35, velocity.Z)
     return part.Position + horizontal * pred
 end
@@ -285,7 +284,7 @@ local currentTarget, stickyTarget = nil, nil
 local aiming = false
 local lastAutoFire = 0
 local lastScan = 0
-local targetRefreshRate = Settings.TargetRefresh or 0.04
+local targetRefreshRate = Settings.TargetRefresh or 0.03
 local smoothedAimPosition = nil
 local smoothedTarget = nil
 
@@ -404,7 +403,7 @@ safeConnect(RunService.RenderStepped, function(dt)
         smoothedTarget = currentTarget
         smoothedAimPosition = targetPos
     else
-        smoothedAimPosition = smoothedAimPosition:Lerp(targetPos, math.clamp(dt * 12, 0.12, 0.45))
+        smoothedAimPosition = smoothedAimPosition:Lerp(targetPos, math.clamp(dt * 16, 0.15, 0.55))
     end
 
     local alpha
@@ -429,12 +428,11 @@ safeConnect(RunService.RenderStepped, function(dt)
             if screenOffset > Settings.AimDeadzone then
                 local frameAlpha = 1 - math.pow(1 - math.clamp(alpha, 0.05, 1), math.clamp(dt * 60, 0.45, 2.4))
 
-                -- Lejos = más rápido, cerca = más fino (sin temblor)
                 local accel = Settings.MouseAccel or 1.1
-                local distFactor = math.clamp(screenOffset / 120, 0.55, 1.35)
+                local distFactor = math.clamp(screenOffset / 100, 0.70, 1.45)
                 local strength = frameAlpha * distFactor * accel
 
-                local maxStep = Settings.Rage and 85 or 55
+                local maxStep = Settings.Rage and 100 or 75
                 local moveX = math.clamp(deltaX * strength, -maxStep, maxStep)
                 local moveY = math.clamp(deltaY * strength, -maxStep, maxStep)
 
@@ -878,7 +876,7 @@ end
 local footer = Instance.new("TextLabel")
 footer.Size = UDim2.new(1, 0, 0, 40)
 footer.BackgroundTransparency = 1
-footer.Text = "Mouse Aim v2 | Insert = menú | Clic derecho = aim"
+footer.Text = "Mouse Aim PEGAJOSO | Insert = menú | Clic derecho = aim"
 footer.TextColor3 = Theme.TextDim
 footer.Font = Enum.Font.Gotham
 footer.TextSize = 10
@@ -899,4 +897,4 @@ safeConnect(UserInputService.InputBegan, function(input, gp)
     end
 end)
 
-print("[YBTHU BETA 2 PRO] Mouse Aim v2 mejorado - APAGAR listo")
+print("[YBTHU BETA 2 PRO] Mouse Aim v2 PEGAJOSO - APAGAR listo")
