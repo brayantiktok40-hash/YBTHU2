@@ -70,13 +70,14 @@ local Settings = {
     TargetPart = "Head",
     Smoothness = 0.82,          -- Antes 0.38 (muy suave). Ahora mas pegajoso
     AimDeadzone = 2.5,          -- Antes 5.0. Menos deadzone = sigue mejor
-    SilentSmoothness = 0.88,
+    SilentSmoothness = 0.95,
     RageSmoothness = 0.99,
     Prediction = 0.14,
     MouseAccel = 1.15,          -- Antes 0.95. Mas agresivo
     TargetRefresh = 0.04,       -- Refresco de target mas rapido
     WallCheck = false,
-    IgnoreTeam = false,         -- Antes true. Causaba que ignorara a TODOS en Rivals
+    IgnoreTeam = true,          -- Re-activado con deteccion mejorada
+    IgnoreFriends = true,       -- NUEVO: ignora amigos de Roblox (soluciona "se pega a mi amigo")
     StickyAim = true,
     HitChance = 100,
     AutoFireRate = 0.10,
@@ -162,6 +163,7 @@ local function saveConfig()
         Prediction = Settings.Prediction,
         WallCheck = Settings.WallCheck,
         IgnoreTeam = Settings.IgnoreTeam,
+        IgnoreFriends = Settings.IgnoreFriends,
         StickyAim = Settings.StickyAim,
         HitChance = Settings.HitChance,
         ESP = Settings.ESP,
@@ -346,7 +348,8 @@ local Texts = {
         Tracers = "Tracers", Chams = "Chams", Skeleton = "Skeleton", Arrows = "Arrows",
         RGB = "RGB Nombres", TitleRGB = "RGB Título",
         NoRecoil = "No Recoil", Rapid = "Rapid Fire", Sticky = "Sticky Aim",
-        Wall = "Wall Check", Team = "Ignore Team", Save = "Guardar Config", Load = "Cargar Config",
+        Wall = "Wall Check", Team = "Ignore Team", Friends = "Ignore Friends",
+        Save = "Guardar Config", Load = "Cargar Config",
         MenuKey = "Tecla Menú", AimKeyBind = "Tecla Aim",
         Pred = "Prediction", Smooth = "Smoothness", FOVSize = "FOV", Hit = "HitChance",
         MaxDist = "Max Distance", AntiFlash = "Anti Flash", AntiSmoke = "Anti Smoke"
@@ -362,7 +365,8 @@ local Texts = {
         Tracers = "Tracers", Chams = "Chams", Skeleton = "Skeleton", Arrows = "Arrows",
         RGB = "RGB Names", TitleRGB = "RGB Title",
         NoRecoil = "No Recoil", Rapid = "Rapid Fire", Sticky = "Sticky Aim",
-        Wall = "Wall Check", Team = "Ignore Team", Save = "Save Config", Load = "Load Config",
+        Wall = "Wall Check", Team = "Ignore Team", Friends = "Ignore Friends",
+        Save = "Save Config", Load = "Load Config",
         MenuKey = "Menu Key", AimKeyBind = "Aim Key",
         Pred = "Prediction", Smooth = "Smoothness", FOVSize = "FOV", Hit = "HitChance",
         MaxDist = "Max Distance", AntiFlash = "Anti Flash", AntiSmoke = "Anti Smoke"
@@ -453,27 +457,65 @@ local function isValidPlayer(player)
     if player == LocalPlayer then return false end
     if not isAlive(player.Character) then return false end
 
-    -- Ignore Team: solo filtrar si AMBOS tienen Team real y son iguales.
-    -- En Rivals a veces todos comparten TeamColor y se bloqueaba a TODOS los enemigos.
-    if Settings.IgnoreTeam then
-        local myTeam = LocalPlayer.Team
-        local theirTeam = player.Team
-        if myTeam ~= nil and theirTeam ~= nil and myTeam == theirTeam then
+    -- 1) Ignore Friends (soluciona "se pega a mi amigo")
+    if Settings.IgnoreFriends then
+        local ok, isFriend = pcall(function()
+            return LocalPlayer:IsFriendsWith(player.UserId)
+        end)
+        if ok and isFriend then
             return false
         end
-        -- Fallback TeamColor solo si no hay Team objects
-        if myTeam == nil and theirTeam == nil then
-            local myTC = LocalPlayer.TeamColor
-            local theirTC = player.TeamColor
-            if myTC and theirTC and myTC == theirTC then
-                local colorName = tostring(myTC)
-                -- No filtrar colores "neutrales" comunes de FFA
-                if colorName ~= "White" and colorName ~= "Institutional white" and colorName ~= "Medium stone grey" then
+    end
+
+    -- 2) Ignore Team (multiples metodos para Rivals)
+    if Settings.IgnoreTeam then
+        -- Metodo A: Team object de Roblox
+        local myTeam = LocalPlayer.Team
+        local theirTeam = player.Team
+        if myTeam and theirTeam and myTeam == theirTeam then
+            return false
+        end
+
+        -- Metodo B: TeamColor (solo si ambos tienen Team)
+        if myTeam and theirTeam and player.TeamColor and LocalPlayer.TeamColor then
+            if player.TeamColor == LocalPlayer.TeamColor then
+                return false
+            end
+        end
+
+        -- Metodo C: Attributes comunes en juegos FPS
+        local char = player.Character
+        if char then
+            local attrNames = {"Team", "team", "Faction", "Side", "Alliance", "Group"}
+            for _, attr in ipairs(attrNames) do
+                local myAttr = LocalPlayer:GetAttribute(attr) or (LocalPlayer.Character and LocalPlayer.Character:GetAttribute(attr))
+                local theirAttr = player:GetAttribute(attr) or char:GetAttribute(attr)
+                if myAttr ~= nil and theirAttr ~= nil and myAttr == theirAttr then
                     return false
                 end
             end
         end
+
+        -- Metodo D: StringValue / IntValue llamado Team dentro del player o character
+        local sameTeamValue = false
+        pcall(function()
+            local function findTeamValue(parent)
+                if not parent then return nil end
+                local v = parent:FindFirstChild("Team") or parent:FindFirstChild("team")
+                if v and (v:IsA("StringValue") or v:IsA("IntValue") or v:IsA("NumberValue")) then
+                    return v.Value
+                end
+                return nil
+            end
+            local myVal = findTeamValue(LocalPlayer) or findTeamValue(LocalPlayer.Character)
+            local theirVal = findTeamValue(player) or findTeamValue(player.Character)
+            if myVal ~= nil and theirVal ~= nil and myVal == theirVal then
+                sameTeamValue = true
+            end
+        end)
+        if sameTeamValue then return false end
     end
+
     return true
 end
 
@@ -650,15 +692,12 @@ safeConnect(UserInputService.InputEnded, function(input)
     end
 end)
 
--- Silent Aim mejorado (R3.1):
--- - Si Aimbot también está ON y no es Rage → no mueve cámara (el mouse aimbot gana)
--- - En Rage o solo Silent → mueve cámara de forma suave y estable
--- - Mejor control de FOV y predicción
+-- Silent Aim R3.3 FIXED:
+-- BUG: antes se desactivaba solo si Aimbot estaba ON → por eso "no funcionaba"
+-- Ahora SIEMPRE trabaja cuando SilentAim = true + tecla de aim
 pcall(function()
     RunService:BindToRenderStep("YBTHU_SilentRivals_R3", Enum.RenderPriority.Camera.Value + 1, function()
         if not running or not Settings.SilentAim then return end
-        -- Evitar pelea con el mouse aimbot normal
-        if Settings.Aimbot and not Settings.Rage then return end
         if not rivalsSilentActive() then return end
         if not passHitChance() then return end
 
@@ -677,17 +716,18 @@ pcall(function()
 
         local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
         local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-        local maxF = getActiveFOV() * (Settings.Rage and 1.6 or 1.35)
+        local maxF = getActiveFOV() * (Settings.Rage and 1.8 or 1.5)
         if dist > maxF then return end
         if not Settings.Rage and not onScreen then return end
 
         local camPos = Camera.CFrame.Position
-        -- Suavizado ligero para que no se sienta tan "snap"
         local look = CFrame.lookAt(camPos, aimPos)
+
         if Settings.Rage then
             Camera.CFrame = look
         else
-            Camera.CFrame = Camera.CFrame:Lerp(look, 0.65)
+            -- Lock fuerte (antes 0.65, casi no se notaba)
+            Camera.CFrame = Camera.CFrame:Lerp(look, 0.92)
         end
     end)
 end)
@@ -1819,6 +1859,7 @@ buildUI = function()
     makeToggle(combatContent, "Sticky", "StickyAim", 6)
     makeToggle(combatContent, "Wall", "WallCheck", 7)
     makeToggle(combatContent, "Team", "IgnoreTeam", 8)
+    makeToggle(combatContent, "Friends", "IgnoreFriends", 8.5)
     makeToggle(combatContent, "Fov", "ShowFOV", 9)
 
     makeSection(combatContent, "SLIDERS", 10)
@@ -2132,6 +2173,7 @@ print("[YBTHU BETA R3.3 FULL FIXED] Cargado correctamente")
 print("[YBTHU] Insert = menú  |  = = siguiente skin")
 print("[YBTHU] Drawing API: " .. (drawingAvailable and "SI" or "NO (solo Chams)"))
 print("[YBTHU] mousemoverel: " .. (typeof(mousemoverel) == "function" and "SI" or "NO"))
-print("[YBTHU] mouse1click: " .. (typeof(mouse1click) == "function" and "SI" or "NO"))
-print("[YBTHU] IgnoreTeam por defecto = OFF (ya no bloquea enemigos)")
+print("[YBTHU] IgnoreFriends = ON (ya no se pega a tus amigos)")
+print("[YBTHU] IgnoreTeam mejorado (varios metodos de deteccion)")
 print("[YBTHU] Aimbot mas pegajoso (Smoothness 0.82)")
+print("[YBTHU] Silent Aim ARREGLADO (ya no se apaga solo con Aimbot ON)")
