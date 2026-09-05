@@ -897,6 +897,76 @@ local function safeClosure(fn)
     return fn
 end
 
+
+-- 0) RIVALS-SPECIFIC: hook Utility.Raycast (este es el que realmente registra dano)
+-- Se reintenta varias veces por si Modules carga tarde
+task.spawn(function()
+    local hooked = false
+    for attempt = 1, 15 do
+        if hooked or not running then break end
+        pcall(function()
+            if typeof(hookfunction) ~= "function" then
+                print("[YBTHU] sin hookfunction - Real debe soportarlo")
+                hooked = true
+                return
+            end
+            local RS = game:GetService("ReplicatedStorage")
+            local Modules = RS:FindFirstChild("Modules")
+            if not Modules then return end
+            local Utility = Modules:FindFirstChild("Utility")
+            if not Utility then return end
+            local util
+            if Utility:IsA("ModuleScript") then
+                local okReq, res = pcall(require, Utility)
+                if okReq and type(res) == "table" then util = res end
+            elseif type(Utility) == "table" then
+                util = Utility
+            end
+            if type(util) ~= "table" or type(util.Raycast) ~= "function" then return end
+            -- Evitar doble hook
+            if util.__YBTHU_HOOKED then
+                hooked = true
+                return
+            end
+            local oldRay = util.Raycast
+            util.Raycast = safeClosure(function(self, origin, target, distance, filter, ...)
+                local should = running and (Settings.SilentAim or Settings.Rage)
+                local isCaller = false
+                pcall(function()
+                    if typeof(checkcaller) == "function" then isCaller = checkcaller() end
+                end)
+                if should and not isCaller then
+                    local distOk = true
+                    if typeof(distance) == "number" then
+                        distOk = (distance >= 50) -- tiros de arma suelen ser 400/999
+                    end
+                    if distOk then
+                        local aimPos, part = getHookAimPos()
+                        if aimPos and part and part.Parent then
+                            return oldRay(self, origin, part.Position, distance, filter, ...)
+                        end
+                    end
+                end
+                return oldRay(self, origin, target, distance, filter, ...)
+            end)
+            util.__YBTHU_HOOKED = true
+            hooked = true
+            print("[YBTHU] RIVALS Utility.Raycast HOOK OK (intento " .. attempt .. ")")
+            pcall(function()
+                game:GetService("StarterGui"):SetCore("SendNotification", {
+                    Title = "YBTHU",
+                    Text = "Silent Aim Rivals ACTIVO",
+                    Duration = 4
+                })
+            end)
+        end)
+        if not hooked then task.wait(1) end
+    end
+    if not hooked then
+        print("[YBTHU] AVISO: no se pudo hookear Utility.Raycast - usa workspace Raycast fallback")
+    end
+end)
+
 -- 1) Hook workspace.Raycast / FindPartOnRay (redirige balas)
 pcall(function()
     if typeof(hookmetamethod) ~= "function" then
