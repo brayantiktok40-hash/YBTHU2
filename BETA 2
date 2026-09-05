@@ -84,7 +84,7 @@ local Settings = {
     StickyAim = true,
     HitChance = 100,
     AutoFireRate = 0.07,
-    RageFireOnlyOnTarget = true, -- Solo dispara si esta alineado al target
+    RageFireOnlyOnTarget = false, -- false = dispara con target (mas hits)
 
     ESP = true,
     ESPBoxes = true,
@@ -667,7 +667,19 @@ local function getClosestTarget()
                 local worldDist = (camPos - part.Position).Magnitude
                 if worldDist <= Settings.MaxDistance then
                     local sp, onScreen = Camera:WorldToViewportPoint(part.Position)
-                    if onScreen and sp.Z > 0 then
+                    if Settings.Rage then
+                        -- Rage: prioriza distancia en mundo, no solo pantalla
+                        local score = worldDist
+                        if onScreen and sp.Z > 0 then
+                            score = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                        else
+                            score = 500 + worldDist  -- off-screen penalizado pero permitido
+                        end
+                        if score < closestDist and hasLineOfSight(camPos, part, character) then
+                            closestDist = score
+                            closest = part
+                        end
+                    elseif onScreen and sp.Z > 0 then
                         local screenDist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
                         if screenDist < closestDist and hasLineOfSight(camPos, part, character) then
                             closestDist = screenDist
@@ -756,12 +768,20 @@ end
 -- Disparo automatico (Rage / helpers)
 local function fireOnce()
     pcall(function()
-        if typeof(mouse1click) == "function" then
-            mouse1click()
-        elseif typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then
+        -- Metodos multiples para maximizar compatibilidad con executors
+        if typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then
             mouse1press()
-            task.defer(function()
+            task.delay(0.05, function()
                 pcall(mouse1release)
+            end)
+        elseif typeof(mouse1click) == "function" then
+            mouse1click()
+        end
+        -- Fallback extra
+        if typeof(mouse1press) == "function" then
+            pcall(mouse1press)
+            task.delay(0.04, function()
+                if typeof(mouse1release) == "function" then pcall(mouse1release) end
             end)
         end
     end)
@@ -850,21 +870,128 @@ safeConnect(UserInputService.InputEnded, function(input)
 end)
 
 -- =====================================================
--- SILENT AIM (solo camera al disparar - SIN metatable hook)
--- El hook de metatable tumba muchos executors antes del menu
+-- SILENT AIM REAL (hooks Raycast + mouse.Hit) + camera lock fuerte
+-- Compatible con Real executor (todo en pcall para no tumbar)
 -- =====================================================
+
+-- Posicion objetivo para hooks (siempre actualizada)
+local function getHookAimPos()
+    if not running then return nil end
+    if not (Settings.SilentAim or Settings.Rage) then return nil end
+    local part = currentTarget
+    if not part or not part.Parent then
+        part = getClosestTarget()
+        if part then currentTarget = part end
+    end
+    if not part or not part.Parent then return nil end
+    local pos = silentAimPos or getPredictedPosition(part) or part.Position
+    return pos, part
+end
+
+-- Helper: newcclosure seguro (Real lo tiene, otros a veces no)
+local function safeClosure(fn)
+    if typeof(newcclosure) == "function" then
+        local ok, c = pcall(newcclosure, fn)
+        if ok and c then return c end
+    end
+    return fn
+end
+
+-- 1) Hook workspace.Raycast / FindPartOnRay (redirige balas)
 pcall(function()
-    RunService:BindToRenderStep("YBTHU_SilentRivals_R3", Enum.RenderPriority.Camera.Value + 1, function()
-        if not running or not Settings.SilentAim then return end
-        if not rivalsSilentActive() then return end
-        local ok, aimPos = pcall(getSilentAimPosition)
-        if not ok or not aimPos then return end
-        pcall(function()
-            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, aimPos)
-        end)
+    if typeof(hookmetamethod) ~= "function" then
+        print("[YBTHU] Sin hookmetamethod - silent limitado a camera")
+        return
+    end
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", safeClosure(function(self, ...)
+        local method = getnamecallmethod()
+        local args = {...}
+        if running and (Settings.SilentAim or Settings.Rage) then
+            local aimPos, part = getHookAimPos()
+            if aimPos and part then
+                -- Raycast de Roblox
+                if method == "Raycast" and self == workspace then
+                    local origin = args[1]
+                    if typeof(origin) == "Vector3" then
+                        local dir = (aimPos - origin)
+                        if dir.Magnitude > 0.1 then
+                            args[2] = dir.Unit * math.max(dir.Magnitude, 900)
+                            return oldNamecall(self, unpack(args))
+                        end
+                    end
+                end
+                -- FindPartOnRay / FindPartOnRayWithIgnoreList / WithWhitelist
+                if method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist" then
+                    local ray = args[1]
+                    if typeof(ray) == "Ray" then
+                        local origin = ray.Origin
+                        local dir = (aimPos - origin)
+                        if dir.Magnitude > 0.1 then
+                            args[1] = Ray.new(origin, dir.Unit * math.max(dir.Magnitude, 900))
+                            return oldNamecall(self, unpack(args))
+                        end
+                    end
+                end
+            end
+        end
+        return oldNamecall(self, ...)
+    end))
+    print("[YBTHU] Silent Aim: hook __namecall Raycast OK")
+end)
+
+-- 2) Spoof mouse.Hit / mouse.UnitRay (muchas armas de Rivals lo usan)
+pcall(function()
+    local mouse = LocalPlayer:GetMouse()
+    if not mouse then return end
+    if not hookmetamethod then return end
+    local oldIndex
+    oldIndex = hookmetamethod(mouse, "__index", safeClosure(function(self, key)
+        if running and (Settings.SilentAim or Settings.Rage) then
+            local aimPos = select(1, getHookAimPos())
+            if aimPos then
+                if key == "Hit" then
+                    return CFrame.new(aimPos)
+                end
+                if key == "UnitRay" then
+                    local origin = Camera.CFrame.Position
+                    local dir = (aimPos - origin)
+                    if dir.Magnitude < 0.1 then dir = Camera.CFrame.LookVector end
+                    return Ray.new(origin, dir.Unit)
+                end
+                if key == "Target" then
+                    local part = select(2, getHookAimPos())
+                    return part
+                end
+            end
+        end
+        return oldIndex(self, key)
+    end))
+    print("[YBTHU] Silent Aim: mouse.Hit / UnitRay spoof OK")
+end)
+
+-- 3) Camera lock FUERTE en RenderStep (prioridad alta) para Real
+pcall(function()
+    RunService:BindToRenderStep("YBTHU_SilentRivals_R3", Enum.RenderPriority.Camera.Value + 10, function()
+        if not running then return end
+        local aimPos = select(1, getHookAimPos())
+        if not aimPos then return end
+
+        -- Rage Camera Lock: forzar mira al target
+        if Settings.Rage and Settings.RageCameraLock and not pbBusy then
+            pcall(function()
+                local look = CFrame.lookAt(Camera.CFrame.Position, aimPos)
+                Camera.CFrame = look  -- instantaneo (sin lerp suave que Real puede pisar)
+            end)
+        -- Silent: solo al disparar
+        elseif Settings.SilentAim and rivalsSilentActive() then
+            pcall(function()
+                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, aimPos)
+            end)
+        end
     end)
 end)
-print("[YBTHU] Silent Aim: camera al disparar OK")
+print("[YBTHU] Silent Aim: hooks + camera lock fuerte OK")
 
 -- Triggerbot (sin yield)
 local lastTriggerShot = 0
@@ -967,24 +1094,29 @@ safeConnect(RunService.RenderStepped, function(dt)
 
     -- ===================== RAGE =====================
     if Settings.Rage then
-        -- Durante wallbang: NO mover camara (ya esta congelada)
+        -- Durante wallbang: NO mover camara (ya esta congelada), pero seguir trackeando
         if pbBusy then
+            keepPointBlankCamera()
             return
         end
-        -- Camera lock adaptativo: lejos = rapido, cerca = suave (sin temblor)
+        -- Camera lock: instantaneo + mouse move (Real a veces pisa CFrame)
         if Settings.RageCameraLock then
             pcall(function()
                 local look = CFrame.lookAt(Camera.CFrame.Position, smoothedAimPosition)
-                local t
-                if screenOffset > 120 then
-                    t = 0.92
-                elseif screenOffset > 40 then
-                    t = math.clamp(alpha, 0.55, 0.82)
-                else
-                    t = math.clamp(alpha * 0.7, 0.35, 0.6)
-                end
-                Camera.CFrame = Camera.CFrame:Lerp(look, t)
+                Camera.CFrame = look
             end)
+            -- Refuerzo con mousemoverel por si el juego resetea la camara
+            if onScreen and screenPoint.Z > 0 and screenOffset > 3 then
+                local dx = screenPoint.X - screenCenter.X
+                local dy = screenPoint.Y - screenCenter.Y
+                local strength = 0.65
+                local maxStep = 80
+                local moveX = math.clamp(dx * strength, -maxStep, maxStep)
+                local moveY = math.clamp(dy * strength, -maxStep, maxStep)
+                if typeof(mousemoverel) == "function" then
+                    pcall(mousemoverel, moveX, moveY)
+                end
+            end
         else
             -- Sin camera lock: mouse mas agresivo pero controlado
             if onScreen and screenPoint.Z > 0 and screenOffset > 2.5 then
@@ -1050,21 +1182,36 @@ safeConnect(RunService.RenderStepped, function(dt)
     end
 end)
 
--- RAGE Auto Shoot: solo cuando el aim esta cerca del target (mas limpio)
+-- RAGE Auto Shoot: mas agresivo, dispara con target (y en wallbang)
 local lastRageShot = 0
 safeConnect(RunService.Heartbeat, function()
     if not running or not Settings.Rage or not Settings.RageAutoShoot then return end
-    if not currentTarget or not currentTarget.Parent then return end
+    if not currentTarget or not currentTarget.Parent then
+        -- Intentar adquirir target al vuelo
+        local t = getClosestTarget()
+        if t then currentTarget = t else return end
+    end
     if not passHitChance() then return end
 
-    -- Comprobar alineacion en pantalla
+    -- En wallbang: disparar siempre (estas pegado al enemigo)
+    if pbBusy then
+        local rate = (Settings.AutoFireRate or 0.07) * 0.7
+        if tick() - lastRageShot < rate then return end
+        lastRageShot = tick()
+        fireOnce()
+        return
+    end
+
+    -- Comprobar alineacion en pantalla (mas permisivo: 90px)
     if Settings.RageFireOnlyOnTarget then
         local aimPos = smoothedAimPosition or currentTarget.Position
         local sp, onScreen = Camera:WorldToViewportPoint(aimPos)
-        if not onScreen or sp.Z <= 0 then return end
-        local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-        local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-        if dist > 45 then return end -- aun no alineado
+        if onScreen and sp.Z > 0 then
+            local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+            local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+            if dist > 90 then return end
+        end
+        -- Si no esta onScreen pero hay target y CameraLock, igual disparar
     end
 
     local rate = Settings.AutoFireRate or 0.07
