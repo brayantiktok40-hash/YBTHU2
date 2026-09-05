@@ -1,5 +1,5 @@
 -- ============================================
--- YBTHU BETA R3.3 FULL FIXED - FULL RIVALS
+-- YBTHU BETA R3.4 RAGE - FULL RIVALS
 -- Correcciones R3.3:
 -- - Ignore Team ARREGLADO (ya no ignora a todos los enemigos)
 -- - Aimbot mucho mas pegajoso (Smoothness 0.82, deadzone bajo, maxStep alto)
@@ -61,26 +61,29 @@ local Settings = {
     Aimbot = true,
     SilentAim = true,
     Rage = false,
+    RageAutoShoot = true,       -- Auto dispara al tener target en Rage
+    RageWallbang = true,        -- Point-blank wallbang en Rage
+    RageCameraLock = true,      -- Lock de camara instantaneo en Rage
     Triggerbot = false,
     AimKey = Enum.UserInputType.MouseButton2,
     FOV = 340,
-    RageFOV = 600,
+    RageFOV = 800,              -- FOV grande para Rage
     ShowFOV = true,
     MaxDistance = 500,
     TargetPart = "Head",
     Smoothness = 0.88,
     AimDeadzone = 1.8,
     SilentSmoothness = 0.95,
-    RageSmoothness = 0.99,
+    RageSmoothness = 1.0,       -- Instant lock
     Prediction = 0.155,
     MouseAccel = 1.25,
     TargetRefresh = 0.035,
     WallCheck = false,
-    IgnoreTeam = true,          -- Re-activado con deteccion mejorada
-    IgnoreFriends = true,       -- NUEVO: ignora amigos de Roblox (soluciona "se pega a mi amigo")
+    IgnoreTeam = true,
+    IgnoreFriends = true,
     StickyAim = true,
     HitChance = 100,
-    AutoFireRate = 0.10,
+    AutoFireRate = 0.08,        -- Disparo mas rapido en Rage/Trigger
 
     ESP = true,
     ESPBoxes = true,
@@ -123,7 +126,7 @@ local Settings = {
     },
 }
 
-local CONFIG_NAME = "YBTHU_BETA_R3_3_Config.json"
+local CONFIG_NAME = "YBTHU_BETA_R3_4_Config.json"
 local toggleRefs = {}
 local sliderRefs = {}
 local uiLabelRefs = {}
@@ -153,6 +156,9 @@ local function saveConfig()
         Aimbot = Settings.Aimbot,
         SilentAim = Settings.SilentAim,
         Rage = Settings.Rage,
+        RageAutoShoot = Settings.RageAutoShoot,
+        RageWallbang = Settings.RageWallbang,
+        RageCameraLock = Settings.RageCameraLock,
         Triggerbot = Settings.Triggerbot,
         FOV = Settings.FOV,
         RageFOV = Settings.RageFOV,
@@ -331,16 +337,17 @@ local function killScript()
     if Runtime.__YBTHU_R3_KILL == killScript then
         Runtime.__YBTHU_R3_KILL = nil
     end
-    print("[YBTHU BETA R3.3 FIXED] Script apagado")
+    print("[YBTHU BETA R3.4 RAGE] Script apagado")
 end
 
 Runtime.__YBTHU_R3_KILL = killScript
 
 local Texts = {
     ES = {
-        Title = "YBTHU", Sub = "BETA R3.3 FIXED",
+        Title = "YBTHU", Sub = "BETA R3.4 RAGE",
         Combat = "COMBATE", Visuals = "VISUALES", GunMods = "GUN MODS", Misc = "AJUSTES",
         Aim = "Aimbot", Silent = "Silent Aim", Trigger = "Triggerbot", Rage = "Rage Aim",
+        RageAuto = "Rage Auto Shoot", RageWB = "Rage Wallbang", RageCam = "Rage Camera Lock",
         Esp = "ESP", Skin = "Skin Changer", Fov = "FOV Circle", Part = "Target Part",
         Color = "ESP Color", Lang = "Idioma", Disc = "Discord", Kill = "APAGAR SCRIPT",
         Notify = "Link copiado", Credit = "Creado por Brayan (YBTHU)",
@@ -355,9 +362,10 @@ local Texts = {
         MaxDist = "Max Distance", AntiFlash = "Anti Flash", AntiSmoke = "Anti Smoke"
     },
     EN = {
-        Title = "YBTHU", Sub = "BETA R3.3 FIXED",
+        Title = "YBTHU", Sub = "BETA R3.4 RAGE",
         Combat = "COMBAT", Visuals = "VISUALS", GunMods = "GUN MODS", Misc = "SETTINGS",
         Aim = "Aimbot", Silent = "Silent Aim", Trigger = "Triggerbot", Rage = "Rage Aim",
+        RageAuto = "Rage Auto Shoot", RageWB = "Rage Wallbang", RageCam = "Rage Camera Lock",
         Esp = "ESP", Skin = "Skin Changer", Fov = "FOV Circle", Part = "Target Part",
         Color = "ESP Color", Lang = "Language", Disc = "Discord", Kill = "KILL SCRIPT",
         Notify = "Link copied", Credit = "Created by Brayan (YBTHU)",
@@ -619,8 +627,8 @@ local function getClosestTarget()
 end
 
 local function doPointBlankWallbang()
-    if not Settings.Rage or not running then return end
-    if tick() - lastPB < 0.18 then return end
+    if not Settings.Rage or not Settings.RageWallbang or not running then return end
+    if tick() - lastPB < 0.22 then return end
     local target = currentTarget
     if not target or not target.Parent then
         target = getClosestTarget()
@@ -633,7 +641,7 @@ local function doPointBlankWallbang()
     if not root then return end
     local tpos = target.Position
     if pbBusy and pbSavedCFrame then
-        pbUntil = tick() + 0.14
+        pbUntil = tick() + 0.12
         lastPB = tick()
         return
     end
@@ -641,17 +649,32 @@ local function doPointBlankWallbang()
     lastPB = tick()
     local ok = pcall(function()
         pbSavedCFrame = root.CFrame
-        local dir = (root.Position - tpos)
+        local dir = root.Position - tpos
         if dir.Magnitude < 0.5 then dir = Vector3.new(0, 0, 1) end
         dir = dir.Unit
-        local nearPos = tpos + dir * 2.2 + Vector3.new(0, 1.2, 0)
-        root.CFrame = CFrame.new(nearPos, tpos)
-        pbUntil = tick() + 0.14
+        -- Posicion cerca del target mirando hacia el (wallbang)
+        local nearPos = tpos + dir * 2.5 + Vector3.new(0, 1.0, 0)
+        root.CFrame = CFrame.lookAt(nearPos, tpos)
+        pbUntil = tick() + 0.12
     end)
     if not ok then
         pbBusy = false
         pbSavedCFrame = nil
     end
+end
+
+-- Disparo automatico (Rage / helpers)
+local function fireOnce()
+    pcall(function()
+        if typeof(mouse1click) == "function" then
+            mouse1click()
+        elseif typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then
+            mouse1press()
+            task.defer(function()
+                pcall(mouse1release)
+            end)
+        end
+    end)
 end
 
 local function restorePointBlank()
@@ -841,9 +864,11 @@ safeConnect(RunService.RenderStepped, function(dt)
 
     local mouseHeld = isAimHeld()
     local mouse1Held = isM1Held()
-    if Settings.Rage and mouse1Held then pcall(doPointBlankWallbang) end
-    -- Silent: rastrea targets siempre (para estar listo), pero la camara solo se mueve al disparar
-    -- Aimbot: solo con AimKey. Rage: siempre.
+    if Settings.Rage and Settings.RageWallbang and mouse1Held then
+        pcall(doPointBlankWallbang)
+    end
+
+    -- Rage: siempre activo. Silent: rastrea. Aimbot: con tecla.
     local shouldAim = Settings.Rage
         or Settings.SilentAim
         or (Settings.Aimbot and (aiming or mouseHeld))
@@ -851,7 +876,7 @@ safeConnect(RunService.RenderStepped, function(dt)
     if not passHitChance() then return end
 
     local now = os.clock()
-    local refresh = Settings.Rage and 0.03 or (Settings.TargetRefresh or 0.055)
+    local refresh = Settings.Rage and 0.02 or (Settings.TargetRefresh or 0.055)
     if now - lastScan >= refresh or not currentTarget or not currentTarget.Parent then
         lastScan = now
         local nextTarget = getClosestTarget()
@@ -870,54 +895,57 @@ safeConnect(RunService.RenderStepped, function(dt)
     local targetPos = getPredictedPosition(currentTarget)
     if not targetPos then return end
 
-    if smoothedTarget ~= currentTarget or not smoothedAimPosition then
+    if Settings.Rage then
+        -- Rage: sin suavizado de posicion (lock duro)
+        smoothedTarget = currentTarget
+        smoothedAimPosition = targetPos
+    elseif smoothedTarget ~= currentTarget or not smoothedAimPosition then
         smoothedTarget = currentTarget
         smoothedAimPosition = targetPos
     else
-        -- Sigue al target de forma mas reactiva
         smoothedAimPosition = smoothedAimPosition:Lerp(targetPos, math.clamp(dt * 16, 0.2, 0.55))
     end
     silentAimPos = smoothedAimPosition
 
     if not (Settings.Aimbot or Settings.Rage) then return end
 
-    local alpha
-    if Settings.Rage then
-        alpha = Settings.RageSmoothness
-    else
-        alpha = Settings.Smoothness
+    -- RAGE: camera lock instantaneo (mas profesional / efectivo)
+    if Settings.Rage and Settings.RageCameraLock then
+        pcall(function()
+            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, smoothedAimPosition)
+        end)
     end
 
+    local alpha = Settings.Rage and Settings.RageSmoothness or Settings.Smoothness
     local screenPoint, onScreen = Camera:WorldToViewportPoint(smoothedAimPosition)
     if onScreen and screenPoint.Z > 0 then
         local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
         local deltaX = screenPoint.X - screenCenter.X
         local deltaY = screenPoint.Y - screenCenter.Y
         local screenOffset = math.sqrt(deltaX * deltaX + deltaY * deltaY)
-        local deadzone = Settings.Rage and 1.5 or Settings.AimDeadzone
+        local deadzone = Settings.Rage and 0.8 or Settings.AimDeadzone
 
         if screenOffset > deadzone then
-            -- Curva: lejos = rapido, cerca = preciso (menos overshoot)
             local alphaClamped = math.clamp(alpha, 0.05, 1)
-            local frameAlpha = 1 - math.pow(1 - alphaClamped, math.clamp(dt * 60, 0.6, 2.2))
-            local accel = Settings.MouseAccel or 1.25
+            local frameAlpha = 1 - math.pow(1 - alphaClamped, math.clamp(dt * 60, 0.6, 2.5))
+            local accel = Settings.Rage and 1.6 or (Settings.MouseAccel or 1.25)
 
-            -- Factor por distancia en pantalla
             local distFactor
-            if screenOffset > 120 then
-                distFactor = 1.2          -- lejos: alcanza rapido
+            if Settings.Rage then
+                distFactor = 1.35
+            elseif screenOffset > 120 then
+                distFactor = 1.2
             elseif screenOffset > 40 then
                 distFactor = 0.95
             else
-                distFactor = 0.7          -- cerca: no se pasa del target
+                distFactor = 0.7
             end
 
             local strength = frameAlpha * distFactor * accel
-            local maxStep = Settings.Rage and 140 or 62
+            local maxStep = Settings.Rage and 180 or 62
             local moveX = math.clamp(deltaX * strength, -maxStep, maxStep)
             local moveY = math.clamp(deltaY * strength, -maxStep, maxStep)
 
-            -- Varios metodos de mover el mouse (segun executor)
             if typeof(mousemoverel) == "function" then
                 mousemoverel(moveX, moveY)
             elseif typeof(Input) == "table" and typeof(Input.MouseMove) == "function" then
@@ -927,6 +955,18 @@ safeConnect(RunService.RenderStepped, function(dt)
             end
         end
     end
+end)
+
+-- RAGE Auto Shoot (dispara solo cuando hay target)
+local lastRageShot = 0
+safeConnect(RunService.Heartbeat, function()
+    if not running or not Settings.Rage or not Settings.RageAutoShoot then return end
+    if not currentTarget or not currentTarget.Parent then return end
+    if not passHitChance() then return end
+    local rate = Settings.AutoFireRate or 0.08
+    if tick() - lastRageShot < rate then return end
+    lastRageShot = tick()
+    fireOnce()
 end)
 
 -- ===================== FOV =====================
@@ -1679,7 +1719,7 @@ buildUI = function()
     title.Size = UDim2.new(1, -60, 0, 28)
     title.Position = UDim2.new(0, 14, 0, 6)
     title.BackgroundTransparency = 1
-    title.Text = "YBTHU  ·  BETA R3.3 FIXED"
+    title.Text = "YBTHU  ·  BETA R3.4 RAGE"
     title.TextColor3 = Theme.Accent
     title.Font = Enum.Font.GothamBold
     title.TextSize = 16
@@ -2015,6 +2055,9 @@ buildUI = function()
     makeToggle(combatContent, "Aim", "Aimbot", 2)
     makeToggle(combatContent, "Silent", "SilentAim", 3)
     makeToggle(combatContent, "Rage", "Rage", 4, Theme.Rage)
+    makeToggle(combatContent, "RageAuto", "RageAutoShoot", 4.2, Theme.Rage)
+    makeToggle(combatContent, "RageWB", "RageWallbang", 4.4, Theme.Rage)
+    makeToggle(combatContent, "RageCam", "RageCameraLock", 4.6, Theme.Rage)
     makeToggle(combatContent, "Trigger", "Triggerbot", 5)
     makeToggle(combatContent, "Sticky", "StickyAim", 6)
     makeToggle(combatContent, "Wall", "WallCheck", 7)
@@ -2319,7 +2362,7 @@ buildUI = function()
     credit.Parent = miscContent
 
     switchTab("Combat")
-    print("[YBTHU BETA R3.3 FIXED] UI cargada")
+    print("[YBTHU BETA R3.4 RAGE] UI cargada")
 end
 
 refreshUIFromSettings = function()
@@ -2329,7 +2372,7 @@ end
 
 buildUI()
 
-print("[YBTHU BETA R3.3 FULL FIXED] Cargado correctamente")
+print("[YBTHU BETA R3.4 RAGE] Cargado correctamente")
 print("[YBTHU] Insert = menú  |  = = siguiente skin")
 print("[YBTHU] Drawing API: " .. (drawingAvailable and "SI" or "NO (solo Chams)"))
 print("[YBTHU] mousemoverel: " .. (typeof(mousemoverel) == "function" and "SI" or "NO"))
@@ -2337,3 +2380,4 @@ print("[YBTHU] IgnoreFriends = ON (ya no se pega a tus amigos)")
 print("[YBTHU] IgnoreTeam mejorado (varios metodos de deteccion)")
 print("[YBTHU] Aimbot mejorado: mas preciso, mejor prediccion, menos overshoot")
 print("[YBTHU] Silent Aim: hook Raycast seguro (sin ScreenPointToRay)")
+print("[YBTHU] RAGE profesional: AutoShoot + CameraLock + Wallbang + FOV 800")
