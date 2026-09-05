@@ -662,8 +662,10 @@ end
 
 local function rivalsSilentActive()
     if not running or not Settings.SilentAim then return false end
-    -- Funciona SIEMPRE con SilentAim ON (no hace falta mantener AimKey / clic derecho)
-    return true
+    -- Silent de verdad: SOLO cuando estás disparando (clic izquierdo)
+    -- No hace falta apuntar (AimKey). No está siempre activo como aimbot.
+    if Settings.Rage then return true end
+    return isM1Held()
 end
 
 safeConnect(UserInputService.InputBegan, function(input, gp)
@@ -691,13 +693,14 @@ safeConnect(UserInputService.InputEnded, function(input)
     end
 end)
 
--- Silent Aim R3.3 FIXED:
--- BUG: antes se desactivaba solo si Aimbot estaba ON → por eso "no funcionaba"
--- Ahora SIEMPRE trabaja cuando SilentAim = true + tecla de aim
+-- Silent Aim REAL:
+-- Solo se activa al DISPARAR (clic izquierdo)
+-- NO requiere apuntar (sin AimKey / clic derecho)
+-- NO está siempre trabando la cámara como un aimbot
 pcall(function()
     RunService:BindToRenderStep("YBTHU_SilentRivals_R3", Enum.RenderPriority.Camera.Value + 1, function()
         if not running or not Settings.SilentAim then return end
-        if not rivalsSilentActive() then return end
+        if not rivalsSilentActive() then return end  -- solo si estás disparando
         if not passHitChance() then return end
 
         local part = currentTarget
@@ -719,15 +722,9 @@ pcall(function()
         if dist > maxF then return end
         if not Settings.Rage and not onScreen then return end
 
+        -- Al disparar: redirige la camara al target solo ese momento (silent)
         local camPos = Camera.CFrame.Position
-        local look = CFrame.lookAt(camPos, aimPos)
-
-        if Settings.Rage then
-            Camera.CFrame = look
-        else
-            -- Lock fuerte (antes 0.65, casi no se notaba)
-            Camera.CFrame = Camera.CFrame:Lerp(look, 0.92)
-        end
+        Camera.CFrame = CFrame.lookAt(camPos, aimPos)
     end)
 end)
 
@@ -773,7 +770,8 @@ safeConnect(RunService.RenderStepped, function(dt)
     local mouseHeld = isAimHeld()
     local mouse1Held = isM1Held()
     if Settings.Rage and mouse1Held then pcall(doPointBlankWallbang) end
-    -- SilentAim: siempre activo (sin tecla). Aimbot: solo con AimKey. Rage: siempre.
+    -- Silent: rastrea targets siempre (para estar listo), pero la camara solo se mueve al disparar
+    -- Aimbot: solo con AimKey. Rage: siempre.
     local shouldAim = Settings.Rage
         or Settings.SilentAim
         or (Settings.Aimbot and (aiming or mouseHeld))
@@ -2178,4 +2176,4 @@ print("[YBTHU] mousemoverel: " .. (typeof(mousemoverel) == "function" and "SI" o
 print("[YBTHU] IgnoreFriends = ON (ya no se pega a tus amigos)")
 print("[YBTHU] IgnoreTeam mejorado (varios metodos de deteccion)")
 print("[YBTHU] Aimbot mas pegajoso (Smoothness 0.82)")
-print("[YBTHU] Silent Aim ARREGLADO (siempre activo, sin necesidad de apuntar)")
+print("[YBTHU] Silent Aim: solo al disparar (sin apuntar, no es aimbot constante)")
