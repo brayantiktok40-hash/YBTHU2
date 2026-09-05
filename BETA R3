@@ -670,10 +670,31 @@ end
 
 local function rivalsSilentActive()
     if not running or not Settings.SilentAim then return false end
-    -- Silent de verdad: SOLO cuando estás disparando (clic izquierdo)
-    -- No hace falta apuntar (AimKey). No está siempre activo como aimbot.
+    -- Solo al disparar (o siempre en Rage). Sin AimKey.
     if Settings.Rage then return true end
     return isM1Held()
+end
+
+-- Posicion silent para el hook (sin mover camara)
+local function getSilentAimPosition()
+    if not Settings.SilentAim or not running then return nil end
+    if not passHitChance() then return nil end
+    local part = currentTarget
+    if not part or not part.Parent then
+        part = getClosestTarget()
+        currentTarget = part
+    end
+    if not part or not part.Parent then return nil end
+    local aimPos = silentAimPos or getPredictedPosition(part)
+    if not aimPos then aimPos = part.Position end
+    local sp, onScreen = Camera:WorldToViewportPoint(aimPos)
+    if sp.Z <= 0 then return nil end
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+    local maxF = getActiveFOV() * (Settings.Rage and 1.8 or 1.5)
+    if dist > maxF then return nil end
+    if not Settings.Rage and not onScreen then return nil end
+    return aimPos
 end
 
 safeConnect(UserInputService.InputBegan, function(input, gp)
@@ -701,40 +722,85 @@ safeConnect(UserInputService.InputEnded, function(input)
     end
 end)
 
--- Silent Aim REAL:
--- Solo se activa al DISPARAR (clic izquierdo)
--- NO requiere apuntar (sin AimKey / clic derecho)
--- NO está siempre trabando la cámara como un aimbot
+-- =====================================================
+-- SILENT AIM REAL (Raycast Hook)
+-- No mueve la camara. Redirige el rayo del disparo al enemigo.
+-- Solo cuando disparas (M1) o Rage. Sin AimKey.
+-- =====================================================
+local silentHookInstalled = false
 pcall(function()
-    RunService:BindToRenderStep("YBTHU_SilentRivals_R3", Enum.RenderPriority.Camera.Value + 1, function()
-        if not running or not Settings.SilentAim then return end
-        if not rivalsSilentActive() then return end  -- solo si estás disparando
-        if not passHitChance() then return end
+    if typeof(getrawmetatable) ~= "function" then
+        print("[YBTHU] Silent Raycast: getrawmetatable no disponible")
+        return
+    end
+    local mt = getrawmetatable(game)
+    if not mt then return end
+    local oldNamecall = mt.__namecall
+    if typeof(setreadonly) == "function" then pcall(setreadonly, mt, false) end
 
-        local part = currentTarget
-        if not part or not part.Parent then
-            part = getClosestTarget()
-            currentTarget = part
+    local function namecallHook(self, ...)
+        local method = typeof(getnamecallmethod) == "function" and getnamecallmethod() or nil
+        local args = {...}
+
+        if running and Settings.SilentAim and rivalsSilentActive() and method then
+            local aimPos = getSilentAimPosition()
+            if aimPos then
+                -- workspace:Raycast(origin, direction, params)
+                if method == "Raycast" and self == workspace and typeof(args[1]) == "Vector3" and typeof(args[2]) == "Vector3" then
+                    local origin = args[1]
+                    local dir = aimPos - origin
+                    if dir.Magnitude > 0.01 then
+                        args[2] = dir.Unit * math.max(args[2].Magnitude, dir.Magnitude)
+                        return oldNamecall(self, table.unpack(args))
+                    end
+                end
+                -- FindPartOnRay variants
+                if method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist" then
+                    if typeof(args[1]) == "Ray" then
+                        local origin = args[1].Origin
+                        local dir = aimPos - origin
+                        if dir.Magnitude > 0.01 then
+                            args[1] = Ray.new(origin, dir.Unit * math.max(args[1].Direction.Magnitude, 500))
+                            return oldNamecall(self, table.unpack(args))
+                        end
+                    end
+                end
+                -- ScreenPointToRay / ViewportPointToRay
+                if (method == "ScreenPointToRay" or method == "ViewportPointToRay") and self == Camera then
+                    local origin = Camera.CFrame.Position
+                    local dir = aimPos - origin
+                    if dir.Magnitude > 0.01 then
+                        return Ray.new(origin, dir.Unit * 1000)
+                    end
+                end
+            end
         end
-        if not part or not part.Parent then return end
+        return oldNamecall(self, ...)
+    end
 
-        local aimPos = silentAimPos or getPredictedPosition(part)
-        if not aimPos then aimPos = part.Position end
-
-        local sp, onScreen = Camera:WorldToViewportPoint(aimPos)
-        if sp.Z <= 0 then return end
-
-        local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-        local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-        local maxF = getActiveFOV() * (Settings.Rage and 1.8 or 1.5)
-        if dist > maxF then return end
-        if not Settings.Rage and not onScreen then return end
-
-        -- Al disparar: redirige la camara al target solo ese momento (silent)
-        local camPos = Camera.CFrame.Position
-        Camera.CFrame = CFrame.lookAt(camPos, aimPos)
-    end)
+    if typeof(newcclosure) == "function" then
+        mt.__namecall = newcclosure(namecallHook)
+    else
+        mt.__namecall = namecallHook
+    end
+    if typeof(setreadonly) == "function" then pcall(setreadonly, mt, true) end
+    silentHookInstalled = true
+    print("[YBTHU] Silent Aim REAL (Raycast Hook) instalado")
 end)
+
+-- Fallback camera solo si el executor no soporta hook
+if not silentHookInstalled then
+    pcall(function()
+        RunService:BindToRenderStep("YBTHU_SilentRivals_R3", Enum.RenderPriority.Camera.Value + 1, function()
+            if not running or not Settings.SilentAim then return end
+            if not rivalsSilentActive() then return end
+            local aimPos = getSilentAimPosition()
+            if not aimPos then return end
+            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, aimPos)
+        end)
+        print("[YBTHU] Silent Aim: fallback camera (sin metatable hook)")
+    end)
+end
 
 -- Triggerbot (sin yield)
 local lastTriggerShot = 0
@@ -2202,4 +2268,4 @@ print("[YBTHU] mousemoverel: " .. (typeof(mousemoverel) == "function" and "SI" o
 print("[YBTHU] IgnoreFriends = ON (ya no se pega a tus amigos)")
 print("[YBTHU] IgnoreTeam mejorado (varios metodos de deteccion)")
 print("[YBTHU] Aimbot mejorado: mas preciso, mejor prediccion, menos overshoot")
-print("[YBTHU] Silent Aim: solo al disparar (sin apuntar, no es aimbot constante)")
+print("[YBTHU] Silent Aim REAL: Raycast Hook (sin mover camara, solo al disparar)")
