@@ -662,9 +662,8 @@ end
 
 local function rivalsSilentActive()
     if not running or not Settings.SilentAim then return false end
-    if Settings.Rage then return true end
-    -- Solo AimKey. NUNCA click izquierdo suelto (era el snap al disparar)
-    return aiming or isAimHeld()
+    -- Funciona SIEMPRE con SilentAim ON (no hace falta mantener AimKey / clic derecho)
+    return true
 end
 
 safeConnect(UserInputService.InputBegan, function(input, gp)
@@ -774,7 +773,10 @@ safeConnect(RunService.RenderStepped, function(dt)
     local mouseHeld = isAimHeld()
     local mouse1Held = isM1Held()
     if Settings.Rage and mouse1Held then pcall(doPointBlankWallbang) end
-    local shouldAim = Settings.Rage or ((Settings.Aimbot or Settings.SilentAim) and (aiming or mouseHeld))
+    -- SilentAim: siempre activo (sin tecla). Aimbot: solo con AimKey. Rage: siempre.
+    local shouldAim = Settings.Rage
+        or Settings.SilentAim
+        or (Settings.Aimbot and (aiming or mouseHeld))
     if not shouldAim then return end
     if not passHitChance() then return end
 
@@ -2176,4 +2178,4 @@ print("[YBTHU] mousemoverel: " .. (typeof(mousemoverel) == "function" and "SI" o
 print("[YBTHU] IgnoreFriends = ON (ya no se pega a tus amigos)")
 print("[YBTHU] IgnoreTeam mejorado (varios metodos de deteccion)")
 print("[YBTHU] Aimbot mas pegajoso (Smoothness 0.82)")
-print("[YBTHU] Silent Aim ARREGLADO (ya no se apaga solo con Aimbot ON)")
+print("[YBTHU] Silent Aim ARREGLADO (siempre activo, sin necesidad de apuntar)")
