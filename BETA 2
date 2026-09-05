@@ -237,6 +237,8 @@ local function loadConfig()
 end
 
 pcall(loadConfig)
+-- Siempre mostrar menu al cargar (config antigua podia dejar Visible=false)
+Settings.Visible = true
 
 local pbSavedCFrame, pbUntil, pbBusy, lastPB = nil, 0, false, 0
 local espCache = {}
@@ -405,13 +407,29 @@ local Theme = {
 }
 
 local function getGuiParent()
+    -- 1) gethui (mejor, invisible a CoreGui detector)
     if typeof(gethui) == "function" then
         local ok, hui = pcall(gethui)
         if ok and hui then return hui end
     end
+    -- 2) CoreGui
     local ok, core = pcall(function() return game:GetService("CoreGui") end)
-    if ok and core then return core end
-    return LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 5)
+    if ok and core then
+        local ok2 = pcall(function()
+            local t = Instance.new("Folder")
+            t.Parent = core
+            t:Destroy()
+        end)
+        if ok2 then return core end
+    end
+    -- 3) PlayerGui
+    local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if pg then return pg end
+    local ok3, pg2 = pcall(function()
+        return LocalPlayer:WaitForChild("PlayerGui", 8)
+    end)
+    if ok3 and pg2 then return pg2 end
+    return nil
 end
 
 local function notify(title, text, duration)
@@ -1666,7 +1684,17 @@ end
 
 buildUI = function()
     local parent = getGuiParent()
-    if not parent then return end
+    if not parent then
+        warn("[YBTHU] No se pudo encontrar parent para el GUI (CoreGui/PlayerGui)")
+        pcall(function()
+            StarterGui:SetCore("SendNotification", {
+                Title = "YBTHU",
+                Text = "Error: no se pudo crear el menu (GUI parent)",
+                Duration = 8
+            })
+        end)
+        return
+    end
     if screenGuiRef then pcall(function() screenGuiRef:Destroy() end) end
     toggleRefs = {}
     sliderRefs = {}
@@ -1676,8 +1704,22 @@ buildUI = function()
     gui.ResetOnSpawn = false
     gui.IgnoreGuiInset = true
     gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    gui.Parent = parent
+    gui.DisplayOrder = 999999
+    gui.Enabled = true
+    pcall(function() gui.Parent = parent end)
+    if not gui.Parent then
+        -- ultimo intento: PlayerGui
+        pcall(function()
+            local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+            if pg then gui.Parent = pg end
+        end)
+    end
+    if not gui.Parent then
+        warn("[YBTHU] ScreenGui no se pudo parentar")
+        return
+    end
     screenGuiRef = gui
+    print("[YBTHU] Menu parent =", gui.Parent:GetFullName())
 
     local window = Instance.new("Frame")
     window.Name = "Main"
@@ -1687,7 +1729,8 @@ buildUI = function()
     window.BorderSizePixel = 0
     window.Active = true
     window.ClipsDescendants = true
-    window.Visible = Settings.Visible
+    window.Visible = true
+    Settings.Visible = true
     window.Parent = gui
     Instance.new("UICorner", window).CornerRadius = UDim.new(0, 12)
     local stroke = Instance.new("UIStroke")
@@ -2048,28 +2091,28 @@ buildUI = function()
     makeToggle(combatContent, "Aim", "Aimbot", 2)
     makeToggle(combatContent, "Silent", "SilentAim", 3)
     makeToggle(combatContent, "Rage", "Rage", 4, Theme.Rage)
-    makeToggle(combatContent, "RageAuto", "RageAutoShoot", 4.2, Theme.Rage)
-    makeToggle(combatContent, "RageWB", "RageWallbang", 4.4, Theme.Rage)
-    makeToggle(combatContent, "RageCam", "RageCameraLock", 4.6, Theme.Rage)
-    makeToggle(combatContent, "Trigger", "Triggerbot", 5)
-    makeToggle(combatContent, "Sticky", "StickyAim", 6)
-    makeToggle(combatContent, "Wall", "WallCheck", 7)
-    makeToggle(combatContent, "Team", "IgnoreTeam", 8)
-    makeToggle(combatContent, "Friends", "IgnoreFriends", 8.5)
-    makeToggle(combatContent, "Fov", "ShowFOV", 9)
+    makeToggle(combatContent, "RageAuto", "RageAutoShoot", 5, Theme.Rage)
+    makeToggle(combatContent, "RageWB", "RageWallbang", 6, Theme.Rage)
+    makeToggle(combatContent, "RageCam", "RageCameraLock", 7, Theme.Rage)
+    makeToggle(combatContent, "Trigger", "Triggerbot", 8)
+    makeToggle(combatContent, "Sticky", "StickyAim", 9)
+    makeToggle(combatContent, "Wall", "WallCheck", 10)
+    makeToggle(combatContent, "Team", "IgnoreTeam", 11)
+    makeToggle(combatContent, "Friends", "IgnoreFriends", 12)
+    makeToggle(combatContent, "Fov", "ShowFOV", 13)
 
-    makeSection(combatContent, "SLIDERS", 10)
-    makeSlider(combatContent, "FOVSize", "FOV", 50, 700, 11, 0)
-    makeSlider(combatContent, "Smooth", "Smoothness", 0.05, 1, 12, 2)
-    makeSlider(combatContent, "Pred", "Prediction", 0, 0.4, 13, 2)
-    makeSlider(combatContent, "Hit", "HitChance", 1, 100, 14, 0)
-    makeSlider(combatContent, "MaxDist", "MaxDistance", 50, 1500, 15, 0)
+    makeSection(combatContent, "SLIDERS", 20)
+    makeSlider(combatContent, "FOVSize", "FOV", 50, 700, 21, 0)
+    makeSlider(combatContent, "Smooth", "Smoothness", 0.05, 1, 22, 2)
+    makeSlider(combatContent, "Pred", "Prediction", 0, 0.4, 23, 2)
+    makeSlider(combatContent, "Hit", "HitChance", 1, 100, 24, 0)
+    makeSlider(combatContent, "MaxDist", "MaxDistance", 50, 1500, 25, 0)
 
-    makeSection(combatContent, "TARGET", 16)
+    makeSection(combatContent, "TARGET", 26)
     local partRow = Instance.new("Frame")
     partRow.Size = UDim2.new(1, 0, 0, 36)
     partRow.BackgroundColor3 = Theme.Card
-    partRow.LayoutOrder = 17
+    partRow.LayoutOrder = 27
     partRow.Parent = combatContent
     Instance.new("UICorner", partRow).CornerRadius = UDim.new(0, 8)
     local partLabel = Instance.new("TextLabel")
@@ -2363,7 +2406,17 @@ refreshUIFromSettings = function()
     for _, fn in pairs(sliderRefs) do pcall(fn) end
 end
 
-buildUI()
+local uiOk, uiErr = pcall(buildUI)
+if not uiOk then
+    warn("[YBTHU] Error al crear UI:", uiErr)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = "YBTHU ERROR UI",
+            Text = tostring(uiErr),
+            Duration = 10
+        })
+    end)
+end
 
 print("[YBTHU BETA R3.4 RAGE] Cargado correctamente")
 print("[YBTHU] Insert = menú  |  = = siguiente skin")
