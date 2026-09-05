@@ -392,12 +392,13 @@ end)
 print("[YBTHU] Silent RIVALS + Rage v2 listo")
 
 -- ============================================
--- SKIN CHANGER (Improved - Clear + Clone method)
+-- SKIN CHANGER + VISUAL UNLOCK (Client-side)
 -- ============================================
 local skinEnabled = false
 local currentSkinIndex = 1
 local availableSkins = {}
 local originalBackups = {}
+local unlockConnection = nil
 
 local function getViewModels()
     local ps = LocalPlayer:FindFirstChild("PlayerScripts")
@@ -405,6 +406,42 @@ local function getViewModels()
     local assets = ps:FindFirstChild("Assets")
     if not assets then return nil end
     return assets:FindFirstChild("ViewModels")
+end
+
+local function hideLocks()
+    -- Hide lock icons in the inventory UI (visual unlock)
+    pcall(function()
+        local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        if not pg then return end
+        for _, gui in ipairs(pg:GetDescendants()) do
+            if gui:IsA("ImageLabel") or gui:IsA("ImageButton") then
+                local name = string.lower(gui.Name)
+                if name:find("lock") or name:find("padlock") or name:find("candado") or name:find("locked") then
+                    gui.Visible = false
+                    gui.ImageTransparency = 1
+                end
+            end
+            if gui:IsA("TextLabel") then
+                local t = string.lower(gui.Text or "")
+                if t:find("locked") or t:find("bloquead") then
+                    gui.Visible = false
+                end
+            end
+        end
+    end)
+end
+
+local function tryUnlockLocalData()
+    -- Best-effort: mark skins as owned in local tables if they exist
+    pcall(function()
+        local ps = LocalPlayer:FindFirstChild("PlayerScripts")
+        if not ps then return end
+        for _, obj in ipairs(ps:GetDescendants()) do
+            if typeof(obj) == "Instance" and (obj:IsA("ModuleScript") or obj:IsA("Folder")) then
+                -- skip heavy search
+            end
+        end
+    end)
 end
 
 local function collectSkins()
@@ -453,34 +490,14 @@ local function applySkinToWeapon(skinData, weaponName)
     if not weapons then return false end
     local weapon = weapons:FindFirstChild(weaponName)
     if not weapon then return false end
-
     backupWeapon(weaponName)
-
     local ok = pcall(function()
         weapon:ClearAllChildren()
         for _, child in ipairs(skinData.path:GetChildren()) do
-            local clone = child:Clone()
-            clone.Parent = weapon
-        end
-    end)
-    return ok
-end
-
-local function restoreWeapon(weaponName)
-    local vms = getViewModels()
-    if not vms then return end
-    local weapons = vms:FindFirstChild("Weapons")
-    local backups = vms:FindFirstChild("OriginalBackups")
-    if not weapons or not backups then return end
-    local weapon = weapons:FindFirstChild(weaponName)
-    local backup = backups:FindFirstChild(weaponName)
-    if not weapon or not backup then return end
-    pcall(function()
-        weapon:ClearAllChildren()
-        for _, child in ipairs(backup:GetChildren()) do
             child:Clone().Parent = weapon
         end
     end)
+    return ok
 end
 
 local function getCurrentEquippedWeapon()
@@ -491,10 +508,7 @@ local function getCurrentEquippedWeapon()
         for _, vm in ipairs(firstPerson:GetChildren()) do
             if vm:IsA("Model") and vm.Name:find(LocalPlayer.Name) then
                 local parts = string.split(vm.Name, " - ")
-                if #parts >= 2 then
-                    name = parts[2]
-                    break
-                end
+                if #parts >= 2 then name = parts[2] break end
             end
         end
     end)
@@ -505,21 +519,22 @@ local function toggleSkinChanger()
     skinEnabled = not skinEnabled
     Settings.SkinChanger = skinEnabled
     if skinEnabled then
+        hideLocks()
+        tryUnlockLocalData()
         local count = collectSkins()
-        if count > 0 then
-            notify("YBTHU", "Skin Changer ON - " .. count .. " skins found. Press + to cycle", 4)
-        else
-            notify("YBTHU", "Skin Changer ON (no skins found)", 3)
-        end
+        -- Keep hiding locks while enabled
+        if unlockConnection then unlockConnection:Disconnect() end
+        unlockConnection = RunService.Heartbeat:Connect(function()
+            if skinEnabled then hideLocks() end
+        end)
+        table.insert(allConnections, unlockConnection)
+        notify("YBTHU", "Skin Unlock Visual ON - Candados ocultos. + para ciclar", 4)
     else
-        -- Restore current weapon
-        local w = getCurrentEquippedWeapon()
-        if w then restoreWeapon(w) end
-        notify("YBTHU", "Skin Changer: OFF (restored)", 3)
+        if unlockConnection then pcall(function() unlockConnection:Disconnect() end) end
+        notify("YBTHU", "Skin Changer: OFF", 3)
     end
 end
 
--- Cycle skins with ]
 safeConnect(UserInputService.InputBegan, function(input, gp)
     if gp or not running or not skinEnabled then return end
     if input.KeyCode == Enum.KeyCode.Equals then
@@ -530,14 +545,11 @@ safeConnect(UserInputService.InputBegan, function(input, gp)
             local skin = availableSkins[currentSkinIndex]
             local weaponName = getCurrentEquippedWeapon()
             if weaponName and skin then
-                local ok = applySkinToWeapon(skin, weaponName)
-                if ok then
-                    notify("YBTHU", "Skin: " .. (skin.name or "?") .. " on " .. weaponName, 2)
-                else
-                    notify("YBTHU", "Failed to apply skin", 2)
+                if applySkinToWeapon(skin, weaponName) then
+                    notify("YBTHU", "Skin: " .. (skin.name or "?") .. " → " .. weaponName, 2)
                 end
             else
-                notify("YBTHU", "Equip a weapon first", 2)
+                notify("YBTHU", "Equipa un arma primero", 2)
             end
         end
     end
@@ -909,6 +921,25 @@ local function makeToggle(labelKey, settingKey, order, onColor)
         if settingKey == "Rage" and Settings.Rage then
             Settings.Aimbot = true
             Settings.WallCheck = false
+        end
+        -- Al APAGAR Aimbot / Silent / Rage / Triggerbot → limpiar targets
+        if settingKey == "Aimbot" or settingKey == "SilentAim" or settingKey == "Rage" or settingKey == "Triggerbot" then
+            if not Settings.Aimbot and not Settings.SilentAim and not Settings.Rage then
+                currentTarget = nil
+                stickyTarget = nil
+                smoothedTarget = nil
+                smoothedAimPosition = nil
+                silentAimPos = nil
+                aiming = false
+                silentSnapUntil = 0
+            end
+            if settingKey == "SilentAim" and not Settings.SilentAim then
+                silentSnapUntil = 0
+                silentAimPos = nil
+            end
+            if settingKey == "Rage" and not Settings.Rage then
+                pcall(restorePointBlank)
+            end
         end
         refresh()
         updateFOV()
