@@ -1,4 +1,3 @@
-
 -- ============================================
 -- YBTHU BETA R3.4 RAGE - FULL RIVALS
 -- Correcciones R3.3:
@@ -2433,10 +2432,13 @@ buildUI = function()
             return
         end
         if gp or not running then return end
-        if input.KeyCode == Settings.MenuKey then
+        if input.KeyCode == Settings.MenuKey or input.KeyCode == Enum.KeyCode.RightShift or input.KeyCode == Enum.KeyCode.RightControl then
             Settings.Visible = not Settings.Visible
             window.Visible = Settings.Visible
-            if Settings.Visible then logo.Visible = false end
+            if Settings.Visible then
+                logo.Visible = false
+                window.Visible = true
+            end
         end
     end)
 
@@ -2519,6 +2521,21 @@ if not uiOk then
             Title = "YBTHU ERROR UI",
             Text = tostring(uiErr),
             Duration = 10
+        })
+    end)
+else
+    -- Forzar menu visible al cargar
+    pcall(function()
+        Settings.Visible = true
+        if screenGuiRef then
+            screenGuiRef.Enabled = true
+            local main = screenGuiRef:FindFirstChild("Main")
+            if main then main.Visible = true end
+        end
+        StarterGui:SetCore("SendNotification", {
+            Title = "YBTHU",
+            Text = "Menu listo! Insert / RightShift / RightCtrl",
+            Duration = 5
         })
     end)
 end
