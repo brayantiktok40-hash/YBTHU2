@@ -242,6 +242,9 @@ pcall(loadConfig)
 Settings.Visible = true
 
 local pbSavedCFrame, pbUntil, pbBusy, lastPB = nil, 0, false, 0
+local pbSavedCamCFrame, pbSavedCamType = nil, nil
+local PB_HOLD_TIME = 0.48   -- tiempo pegado al enemigo antes de volver
+local PB_COOLDOWN = 0.35
 local espCache = {}
 local unlockConnection = nil
 
@@ -334,7 +337,17 @@ local function killScript()
             local root = char and char:FindFirstChild("HumanoidRootPart")
             if root then root.CFrame = pbSavedCFrame end
         end
+        if pbSavedCamType then
+            Camera.CameraType = pbSavedCamType
+        else
+            Camera.CameraType = Enum.CameraType.Custom
+        end
+        if pbSavedCamCFrame then
+            Camera.CFrame = pbSavedCamCFrame
+        end
         pbSavedCFrame = nil
+        pbSavedCamCFrame = nil
+        pbSavedCamType = nil
         pbBusy = false
     end)
     if Runtime.__YBTHU_R3_KILL == killScript then
@@ -671,7 +684,7 @@ end
 
 local function doPointBlankWallbang()
     if not Settings.Rage or not Settings.RageWallbang or not running then return end
-    if tick() - lastPB < 0.22 then return end
+    if tick() - lastPB < PB_COOLDOWN then return end
     local target = currentTarget
     if not target or not target.Parent then
         target = getClosestTarget()
@@ -683,27 +696,52 @@ local function doPointBlankWallbang()
     local root = char:FindFirstChild("HumanoidRootPart")
     if not root then return end
     local tpos = target.Position
+
+    -- Si ya estas en wallbang, solo extender el tiempo
     if pbBusy and pbSavedCFrame then
-        pbUntil = tick() + 0.12
+        pbUntil = tick() + PB_HOLD_TIME
         lastPB = tick()
         return
     end
+
     pbBusy = true
     lastPB = tick()
     local ok = pcall(function()
+        -- Guardar posicion del personaje Y de la camara
         pbSavedCFrame = root.CFrame
+        pbSavedCamCFrame = Camera.CFrame
+        pbSavedCamType = Camera.CameraType
+
+        -- Congelar camara (no se mueve aunque el body se teletransporte)
+        Camera.CameraType = Enum.CameraType.Scriptable
+        Camera.CFrame = pbSavedCamCFrame
+
         local dir = root.Position - tpos
         if dir.Magnitude < 0.5 then dir = Vector3.new(0, 0, 1) end
         dir = dir.Unit
-        -- Posicion cerca del target mirando hacia el (wallbang)
         local nearPos = tpos + dir * 2.5 + Vector3.new(0, 1.0, 0)
         root.CFrame = CFrame.lookAt(nearPos, tpos)
-        pbUntil = tick() + 0.12
+
+        pbUntil = tick() + PB_HOLD_TIME
     end)
     if not ok then
         pbBusy = false
         pbSavedCFrame = nil
+        pbSavedCamCFrame = nil
+        pcall(function()
+            if pbSavedCamType then Camera.CameraType = pbSavedCamType end
+        end)
+        pbSavedCamType = nil
     end
+end
+
+-- Mantener camara fija mientras el body esta en wallbang
+local function keepPointBlankCamera()
+    if not pbBusy or not pbSavedCamCFrame then return end
+    pcall(function()
+        Camera.CameraType = Enum.CameraType.Scriptable
+        Camera.CFrame = pbSavedCamCFrame
+    end)
 end
 
 -- Disparo automatico (Rage / helpers)
@@ -723,14 +761,28 @@ end
 local function restorePointBlank()
     if not pbSavedCFrame then
         pbBusy = false
+        pbSavedCamCFrame = nil
         return
     end
     pcall(function()
         local char = LocalPlayer.Character
         local root = char and char:FindFirstChild("HumanoidRootPart")
-        if root and pbSavedCFrame then root.CFrame = pbSavedCFrame end
+        if root and pbSavedCFrame then
+            root.CFrame = pbSavedCFrame
+        end
+        -- Restaurar camara
+        if pbSavedCamType then
+            Camera.CameraType = pbSavedCamType
+        else
+            Camera.CameraType = Enum.CameraType.Custom
+        end
+        if pbSavedCamCFrame then
+            Camera.CFrame = pbSavedCamCFrame
+        end
     end)
     pbSavedCFrame = nil
+    pbSavedCamCFrame = nil
+    pbSavedCamType = nil
     pbBusy = false
 end
 
@@ -832,7 +884,13 @@ end)
 -- Aim principal + Hard Guard
 safeConnect(RunService.RenderStepped, function(dt)
     if not running then return end
-    if pbBusy and tick() >= pbUntil then restorePointBlank() end
+    -- Camara fija durante wallbang (body se mueve, tu vista no)
+    if pbBusy then
+        keepPointBlankCamera()
+        if tick() >= pbUntil then
+            restorePointBlank()
+        end
+    end
 
     if not Settings.Aimbot and not Settings.SilentAim and not Settings.Rage then
         currentTarget = nil
@@ -900,6 +958,10 @@ safeConnect(RunService.RenderStepped, function(dt)
 
     -- ===================== RAGE =====================
     if Settings.Rage then
+        -- Durante wallbang: NO mover camara (ya esta congelada)
+        if pbBusy then
+            return
+        end
         -- Camera lock adaptativo: lejos = rapido, cerca = suave (sin temblor)
         if Settings.RageCameraLock then
             pcall(function()
