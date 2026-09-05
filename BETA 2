@@ -79,7 +79,7 @@ local Settings = {
     MouseAccel = 1.25,
     TargetRefresh = 0.035,
     WallCheck = false,
-    IgnoreTeam = true,
+    IgnoreTeam = false,
     IgnoreFriends = true,
     StickyAim = true,
     HitChance = 100,
@@ -746,12 +746,23 @@ safeConnect(UserInputService.InputEnded, function(input)
 end)
 
 -- =====================================================
--- SILENT AIM REAL (hook SEGURO)
--- Solo interviene en workspace:Raycast
--- NO toca ScreenPointToRay / ViewportPointToRay (eso crasheaba)
--- Solo cuando disparas (M1) o Rage
+-- SILENT AIM (FUNCIONAL)
+-- 1) Camera lock al DISPARAR (siempre, fiable)
+-- 2) Hook Raycast opcional (si el executor lo soporta)
 -- =====================================================
-local silentHookInstalled = false
+pcall(function()
+    RunService:BindToRenderStep("YBTHU_SilentRivals_R3", Enum.RenderPriority.Camera.Value + 1, function()
+        if not running or not Settings.SilentAim then return end
+        if not rivalsSilentActive() then return end -- M1 o Rage
+        local ok, aimPos = pcall(getSilentAimPosition)
+        if not ok or not aimPos then return end
+        pcall(function()
+            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, aimPos)
+        end)
+    end)
+end)
+
+-- Hook Raycast opcional (extra, no sustituye a la camera)
 pcall(function()
     if typeof(getrawmetatable) ~= "function" then return end
     local mt = getrawmetatable(game)
@@ -762,34 +773,22 @@ pcall(function()
     end)
 
     local function namecallHook(self, ...)
-        -- Siempre devolver al original si algo falla
         local args = { ... }
-        local success, result = pcall(function()
-            -- checkcaller evita bucles raros en algunos executors
-            if typeof(checkcaller) == "function" and checkcaller() then
-                return nil -- dejar pasar, se maneja abajo
-            end
-            if not running or not Settings.SilentAim then return nil end
-            if not rivalsSilentActive() then return nil end
-
+        local modified = false
+        pcall(function()
+            if typeof(checkcaller) == "function" and checkcaller() then return end
+            if not running or not Settings.SilentAim or not rivalsSilentActive() then return end
             local method = typeof(getnamecallmethod) == "function" and getnamecallmethod() or nil
-            -- SOLO Raycast de workspace (nada de ScreenPointToRay)
-            if method ~= "Raycast" or self ~= workspace then return nil end
-            if typeof(args[1]) ~= "Vector3" or typeof(args[2]) ~= "Vector3" then return nil end
-
+            if method ~= "Raycast" or self ~= workspace then return end
+            if typeof(args[1]) ~= "Vector3" or typeof(args[2]) ~= "Vector3" then return end
             local aimPos = getSilentAimPosition()
-            if not aimPos then return nil end
-
-            local origin = args[1]
-            local dir = aimPos - origin
-            if dir.Magnitude < 0.05 then return nil end
-
-            local len = math.max(args[2].Magnitude, 1)
-            args[2] = dir.Unit * len
-            return true -- signal: use modified args
+            if not aimPos then return end
+            local dir = aimPos - args[1]
+            if dir.Magnitude < 0.05 then return end
+            args[2] = dir.Unit * math.max(args[2].Magnitude, 1)
+            modified = true
         end)
-
-        if success and result == true then
+        if modified then
             return oldNamecall(self, table.unpack(args))
         end
         return oldNamecall(self, ...)
@@ -803,25 +802,8 @@ pcall(function()
     pcall(function()
         if typeof(setreadonly) == "function" then setreadonly(mt, true) end
     end)
-    silentHookInstalled = true
-    print("[YBTHU] Silent Aim REAL: hook Raycast seguro instalado")
+    print("[YBTHU] Silent: camera + hook Raycast activos")
 end)
-
--- Si no hay hook, camera solo al disparar (no ideal pero no crashea)
-if not silentHookInstalled then
-    pcall(function()
-        RunService:BindToRenderStep("YBTHU_SilentRivals_R3", Enum.RenderPriority.Camera.Value + 1, function()
-            if not running or not Settings.SilentAim then return end
-            if not rivalsSilentActive() then return end
-            local ok, aimPos = pcall(getSilentAimPosition)
-            if not ok or not aimPos then return end
-            pcall(function()
-                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, aimPos)
-            end)
-        end)
-        print("[YBTHU] Silent Aim: fallback camera (executor sin metatable)")
-    end)
-end
 
 -- Triggerbot (sin yield)
 local lastTriggerShot = 0
@@ -946,12 +928,23 @@ safeConnect(RunService.RenderStepped, function(dt)
             local moveX = math.clamp(deltaX * strength, -maxStep, maxStep)
             local moveY = math.clamp(deltaY * strength, -maxStep, maxStep)
 
+            local moved = false
             if typeof(mousemoverel) == "function" then
                 mousemoverel(moveX, moveY)
+                moved = true
             elseif typeof(Input) == "table" and typeof(Input.MouseMove) == "function" then
                 Input.MouseMove(moveX, moveY)
+                moved = true
             elseif typeof(mouse1move) == "function" then
                 pcall(mouse1move, moveX, moveY)
+                moved = true
+            end
+            -- Si el executor no mueve el mouse, usar camara (Aimbot y Rage)
+            if not moved then
+                pcall(function()
+                    local look = CFrame.lookAt(Camera.CFrame.Position, smoothedAimPosition)
+                    Camera.CFrame = Camera.CFrame:Lerp(look, Settings.Rage and 1 or math.clamp(alpha, 0.2, 0.95))
+                end)
             end
         end
     end
@@ -2377,7 +2370,7 @@ print("[YBTHU] Insert = menú  |  = = siguiente skin")
 print("[YBTHU] Drawing API: " .. (drawingAvailable and "SI" or "NO (solo Chams)"))
 print("[YBTHU] mousemoverel: " .. (typeof(mousemoverel) == "function" and "SI" or "NO"))
 print("[YBTHU] IgnoreFriends = ON (ya no se pega a tus amigos)")
-print("[YBTHU] IgnoreTeam mejorado (varios metodos de deteccion)")
+print("[YBTHU] IgnoreTeam = OFF por defecto (en Rivals filtraba a todos)")
 print("[YBTHU] Aimbot mejorado: mas preciso, mejor prediccion, menos overshoot")
-print("[YBTHU] Silent Aim: hook Raycast seguro (sin ScreenPointToRay)")
+print("[YBTHU] Silent Aim: camera al disparar + hook Raycast opcional")
 print("[YBTHU] RAGE profesional: AutoShoot + CameraLock + Wallbang + FOV 800")
