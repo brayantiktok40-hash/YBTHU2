@@ -1,6 +1,6 @@
 -- ============================================
--- YBTHU BETA 2 PRO (MOUSE AIM + SILENT REAL v3)
--- Aimbot estable + Silent Aim anti-crash + Rage + ESP + Kill
+-- YBTHU BETA 2 PRO (MOUSE AIM + SILENT PRACTICO v4)
+-- Aimbot estable + Silent snap al disparar + Rage + ESP + Kill
 -- ============================================
 
 local Players = game:GetService("Players")
@@ -78,13 +78,11 @@ local function killScript()
     Settings.Rage = false
     Settings.ESP = false
     Settings.ShowFOV = false
-
     for i = 1, #allConnections do
         local c = allConnections[i]
         if c then pcall(function() c:Disconnect() end) end
     end
     for i = #allConnections, 1, -1 do allConnections[i] = nil end
-
     pcall(function()
         for _, p in ipairs(Players:GetPlayers()) do
             local char = p.Character
@@ -95,51 +93,25 @@ local function killScript()
             end
         end
     end)
-
     pcall(function() if fovGuiRef then fovGuiRef:Destroy() end end)
     pcall(function() if screenGuiRef then screenGuiRef:Destroy() end end)
-
     local names = {"YBTHU_BETA2", "YBTHU_FOV"}
     local parents = {}
-    pcall(function()
-        if typeof(gethui) == "function" then
-            local h = gethui()
-            if h then table.insert(parents, h) end
-        end
-    end)
+    pcall(function() if typeof(gethui) == "function" then local h = gethui() if h then table.insert(parents, h) end end end)
     pcall(function() table.insert(parents, game:GetService("CoreGui")) end)
-    pcall(function()
-        local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-        if pg then table.insert(parents, pg) end
-    end)
+    pcall(function() local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui") if pg then table.insert(parents, pg) end end)
     for _, parent in ipairs(parents) do
         for _, name in ipairs(names) do
-            pcall(function()
-                local obj = parent:FindFirstChild(name)
-                if obj then obj:Destroy() end
-            end)
+            pcall(function() local obj = parent:FindFirstChild(name) if obj then obj:Destroy() end end)
         end
     end
-
-    pcall(function()
-        StarterGui:SetCore("SendNotification", { Title = "YBTHU", Text = "Script APAGADO", Duration = 3 })
-    end)
+    pcall(function() StarterGui:SetCore("SendNotification", { Title = "YBTHU", Text = "Script APAGADO", Duration = 3 }) end)
     print("[YBTHU BETA 2] Script completamente apagado")
 end
 
 local Texts = {
-    ES = {
-        Title = "YBTHU", Sub = "BETA 2 PRO", Combat = "COMBATE", Visuals = "VISUALES", Misc = "AJUSTES",
-        Aim = "Aimbot", Silent = "Silent Aim", Rage = "Rage Aim", Esp = "ESP", Fov = "FOV Circle",
-        Part = "Target Part", Color = "ESP Color", Lang = "Idioma", Disc = "Discord",
-        Kill = "APAGAR SCRIPT", Notify = "Link copiado", Credit = "Creado por Brayan (YBTHU)",
-    },
-    EN = {
-        Title = "YBTHU", Sub = "BETA 2 PRO", Combat = "COMBAT", Visuals = "VISUALS", Misc = "SETTINGS",
-        Aim = "Aimbot", Silent = "Silent Aim", Rage = "Rage Aim", Esp = "ESP", Fov = "FOV Circle",
-        Part = "Target Part", Color = "ESP Color", Lang = "Language", Disc = "Discord",
-        Kill = "KILL SCRIPT", Notify = "Link copied", Credit = "Created by Brayan (YBTHU)",
-    },
+    ES = { Title = "YBTHU", Sub = "BETA 2 PRO", Combat = "COMBATE", Visuals = "VISUALES", Misc = "AJUSTES", Aim = "Aimbot", Silent = "Silent Aim", Rage = "Rage Aim", Esp = "ESP", Fov = "FOV Circle", Part = "Target Part", Color = "ESP Color", Lang = "Idioma", Disc = "Discord", Kill = "APAGAR SCRIPT", Notify = "Link copiado", Credit = "Creado por Brayan (YBTHU)" },
+    EN = { Title = "YBTHU", Sub = "BETA 2 PRO", Combat = "COMBAT", Visuals = "VISUALS", Misc = "SETTINGS", Aim = "Aimbot", Silent = "Silent Aim", Rage = "Rage Aim", Esp = "ESP", Fov = "FOV Circle", Part = "Target Part", Color = "ESP Color", Lang = "Language", Disc = "Discord", Kill = "KILL SCRIPT", Notify = "Link copied", Credit = "Created by Brayan (YBTHU)" },
 }
 
 local DISCORD_URL = "https://discord.gg/b9mvbR6rq"
@@ -154,33 +126,22 @@ local Theme = {
 }
 
 local function getGuiParent()
-    if typeof(gethui) == "function" then
-        local ok, hui = pcall(gethui)
-        if ok and hui then return hui end
-    end
+    if typeof(gethui) == "function" then local ok, hui = pcall(gethui) if ok and hui then return hui end end
     local ok, core = pcall(function() return game:GetService("CoreGui") end)
     if ok and core then return core end
     return LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 5)
 end
 
 local function notify(title, text, duration)
-    pcall(function()
-        StarterGui:SetCore("SendNotification", { Title = title, Text = text, Duration = duration or 4 })
-    end)
+    pcall(function() StarterGui:SetCore("SendNotification", { Title = title, Text = text, Duration = duration or 4 }) end)
 end
 
 notify("YBTHU", Texts[Settings.Language].Credit, 5)
 
 local function getPart(character)
     if not character then return nil end
-    if Settings.Rage then
-        return character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart")
-    end
-    return character:FindFirstChild(Settings.TargetPart)
-        or character:FindFirstChild("Head")
-        or character:FindFirstChild("UpperTorso")
-        or character:FindFirstChild("Torso")
-        or character:FindFirstChild("HumanoidRootPart")
+    if Settings.Rage then return character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart") end
+    return character:FindFirstChild(Settings.TargetPart) or character:FindFirstChild("Head") or character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso") or character:FindFirstChild("HumanoidRootPart")
 end
 
 local function isAlive(character)
@@ -233,6 +194,7 @@ local lastScan = 0
 local targetRefreshRate = Settings.TargetRefresh or 0.055
 local smoothedAimPosition = nil
 local smoothedTarget = nil
+local silentSnapUntil = 0
 
 local function getClosestTarget()
     local fov = getActiveFOV()
@@ -248,9 +210,7 @@ local function getClosestTarget()
             local sp, onScreen = Camera:WorldToViewportPoint(stickyTarget.Position)
             if onScreen and sp.Z > 0 then
                 local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                if dist <= fov * 1.35 and hasLineOfSight(camPos, stickyTarget, char) then
-                    return stickyTarget
-                end
+                if dist <= fov * 1.35 and hasLineOfSight(camPos, stickyTarget, char) then return stickyTarget end
             end
         end
         stickyTarget = nil
@@ -275,7 +235,6 @@ local function getClosestTarget()
             end
         end
     end
-
     stickyTarget = closest
     return closest
 end
@@ -286,150 +245,53 @@ local function doAutoFire()
     lastAutoFire = now
     pcall(function()
         if typeof(mouse1click) == "function" then mouse1click() return end
-        if typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then
-            mouse1press()
-            mouse1release()
-        end
+        if typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then mouse1press() mouse1release() end
     end)
 end
 
 -- ============================================
--- SILENT AIM REAL v3 (anti-crash)
+-- SILENT AIM PRACTICO v4 (snap al disparar)
 -- ============================================
-local function safeCheckCaller()
-    local ok, res = pcall(function()
-        if typeof(checkcaller) == "function" then return checkcaller() end
-        return false
-    end)
-    return ok and res or false
-end
-
-local function silentActive()
-    if not running or not Settings.SilentAim then return false end
-    if Settings.Rage then return true end
-    local ok = aiming
-    pcall(function()
-        if UserInputService:IsMouseButtonPressed(Settings.AimKey) then ok = true end
-        if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then ok = true end
-    end)
-    return ok
-end
-
 local function getSilentTargetPos()
     local ok, result = pcall(function()
-        if not silentActive() then return nil end
+        if not Settings.SilentAim or not running then return nil end
         local pos = silentAimPos
-        if not pos and currentTarget and currentTarget.Parent then
-            pos = getPredictedPosition(currentTarget)
-        end
+        if not pos and currentTarget and currentTarget.Parent then pos = getPredictedPosition(currentTarget) end
         if not pos then return nil end
         local sp, onScreen = Camera:WorldToViewportPoint(pos)
         if not onScreen or sp.Z <= 0 then return nil end
         local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-        local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-        if dist > getActiveFOV() * 1.25 then return nil end
+        if (Vector2.new(sp.X, sp.Y) - center).Magnitude > getActiveFOV() * 1.3 then return nil end
         return pos
     end)
     if ok then return result end
     return nil
 end
 
-local function silentOrigin()
-    local origin = Camera.CFrame.Position
-    pcall(function()
-        local head = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head")
-        if head then origin = head.Position end
-    end)
-    return origin
-end
-
--- Solo Mouse (NO hookea game.__index global -> evita crash)
-pcall(function()
-    local mouse = LocalPlayer:GetMouse()
-    if not mouse or typeof(getrawmetatable) ~= "function" then return end
-    local mt = getrawmetatable(mouse)
-    if not mt or not mt.__index then return end
-    local oldIndex = mt.__index
-    if typeof(setreadonly) == "function" then setreadonly(mt, false) end
-
-    local function wrapper(self, key)
-        if key == "Hit" or key == "UnitRay" then
-            local pos = getSilentTargetPos()
-            if pos then
-                if key == "Hit" then return CFrame.new(pos) end
-                local origin = silentOrigin()
-                return Ray.new(origin, (pos - origin).Unit * 1000)
-            end
-        end
-        if typeof(oldIndex) == "function" then return oldIndex(self, key) end
-        return nil
-    end
-
-    if typeof(newcclosure) == "function" then
-        mt.__index = newcclosure(wrapper)
-    else
-        mt.__index = wrapper
-    end
-    if typeof(setreadonly) == "function" then setreadonly(mt, true) end
-end)
-
--- Solo namecall de rays (protegido)
-pcall(function()
-    if typeof(getrawmetatable) ~= "function" then return end
-    local mt = getrawmetatable(game)
-    if not mt or not mt.__namecall then return end
-    local oldNamecall = mt.__namecall
-    if typeof(setreadonly) == "function" then setreadonly(mt, false) end
-
-    local rayMethods = {
-        Raycast = true,
-        FindPartOnRay = true,
-        FindPartOnRayWithIgnoreList = true,
-        FindPartOnRayWithWhitelist = true,
-        ViewportPointToRay = true,
-        ScreenPointToRay = true,
-    }
-
-    local function wrapper(self, ...)
-        local args = { ... }
-        local method
-        pcall(function() method = getnamecallmethod() end)
-
-        if method and rayMethods[method] and not safeCheckCaller() then
-            local pos = getSilentTargetPos()
-            if pos then
-                local origin = silentOrigin()
-                local dir = (pos - origin).Unit * 1000
-                if method == "Raycast" and typeof(args[1]) == "Vector3" and typeof(args[2]) == "Vector3" then
-                    args[1] = origin
-                    args[2] = dir
-                    return oldNamecall(self, unpack(args))
-                end
-                if (method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist") and typeof(args[1]) == "Ray" then
-                    args[1] = Ray.new(origin, dir)
-                    return oldNamecall(self, unpack(args))
-                end
-                if method == "ViewportPointToRay" or method == "ScreenPointToRay" then
-                    return Ray.new(origin, dir)
-                end
-            end
-        end
-        return oldNamecall(self, ...)
-    end
-
-    if typeof(newcclosure) == "function" then
-        mt.__namecall = newcclosure(wrapper)
-    else
-        mt.__namecall = wrapper
-    end
-    if typeof(setreadonly) == "function" then setreadonly(mt, true) end
-end)
-
-print("[YBTHU] Silent Aim REAL v3 (anti-crash)")
-
+-- Al disparar: snap fuerte al target
 safeConnect(UserInputService.InputBegan, function(input, gp)
     if gp or not running then return end
     if input.UserInputType == Settings.AimKey then aiming = true end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 and Settings.SilentAim then
+        silentSnapUntil = tick() + 0.25
+        pcall(function()
+            local t = getClosestTarget()
+            if t then
+                currentTarget = t
+                silentAimPos = getPredictedPosition(t)
+                local pos = silentAimPos
+                if not pos then return end
+                local sp, onScreen = Camera:WorldToViewportPoint(pos)
+                if not onScreen then return end
+                local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                local moveX = (sp.X - center.X) * 0.95
+                local moveY = (sp.Y - center.Y) * 0.95
+                if typeof(mousemoverel) == "function" then
+                    mousemoverel(moveX, moveY)
+                end
+            end
+        end)
+    end
 end)
 
 safeConnect(UserInputService.InputEnded, function(input)
@@ -445,6 +307,31 @@ safeConnect(UserInputService.InputEnded, function(input)
     end
 end)
 
+-- Hook Mouse.Hit ligero (extra)
+pcall(function()
+    local mouse = LocalPlayer:GetMouse()
+    if not mouse or typeof(getrawmetatable) ~= "function" then return end
+    local mt = getrawmetatable(mouse)
+    if not mt or type(mt.__index) ~= "function" then return end
+    local oldIndex = mt.__index
+    pcall(function() if typeof(setreadonly) == "function" then setreadonly(mt, false) end end)
+    local function wrapper(self, key)
+        if (key == "Hit" or key == "UnitRay") and Settings.SilentAim and running then
+            local pos = getSilentTargetPos()
+            if pos then
+                if key == "Hit" then return CFrame.new(pos) end
+                local origin = Camera.CFrame.Position
+                return Ray.new(origin, (pos - origin).Unit * 1000)
+            end
+        end
+        return oldIndex(self, key)
+    end
+    mt.__index = typeof(newcclosure) == "function" and newcclosure(wrapper) or wrapper
+    pcall(function() if typeof(setreadonly) == "function" then setreadonly(mt, true) end end)
+end)
+
+print("[YBTHU] Silent Aim PRACTICO v4 (snap al disparar)")
+
 safeConnect(RunService.RenderStepped, function(dt)
     if not running then return end
     local mouseHeld, mouse1Held = false, false
@@ -452,7 +339,8 @@ safeConnect(RunService.RenderStepped, function(dt)
         mouseHeld = UserInputService:IsMouseButtonPressed(Settings.AimKey)
         mouse1Held = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
     end)
-    local shouldAim = Settings.Rage or ((Settings.Aimbot or Settings.SilentAim) and (aiming or mouseHeld or mouse1Held))
+    local silentSnap = Settings.SilentAim and (tick() < silentSnapUntil or mouse1Held)
+    local shouldAim = Settings.Rage or ((Settings.Aimbot or Settings.SilentAim) and (aiming or mouseHeld or mouse1Held or silentSnap))
     if not shouldAim then return end
     if not Settings.Aimbot and not Settings.SilentAim and not Settings.Rage then return end
 
@@ -485,24 +373,27 @@ safeConnect(RunService.RenderStepped, function(dt)
 
     local alpha
     if Settings.Rage then alpha = Settings.RageSmoothness
+    elseif silentSnap then alpha = 0.88
     elseif Settings.SilentAim and not Settings.Aimbot then alpha = 0.85
     elseif Settings.SilentAim then alpha = Settings.SilentSmoothness
     else alpha = Settings.Smoothness end
 
-    if Settings.Aimbot or Settings.Rage then
+    if Settings.Aimbot or Settings.Rage or silentSnap then
         local screenPoint, onScreen = Camera:WorldToViewportPoint(smoothedAimPosition)
         if onScreen and screenPoint.Z > 0 then
             local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
             local deltaX = screenPoint.X - screenCenter.X
             local deltaY = screenPoint.Y - screenCenter.Y
             local screenOffset = math.sqrt(deltaX * deltaX + deltaY * deltaY)
+            local dead = silentSnap and 1.5 or Settings.AimDeadzone
 
-            if screenOffset > Settings.AimDeadzone then
+            if screenOffset > dead then
                 local frameAlpha = 1 - math.pow(1 - math.clamp(alpha, 0.05, 1), math.clamp(dt * 60, 0.35, 1.6))
                 local accel = Settings.MouseAccel or 0.95
                 local distFactor = math.clamp(screenOffset / 140, 0.40, 1.05)
                 local strength = frameAlpha * distFactor * accel
-                local maxStep = Settings.Rage and 55 or 28
+                if silentSnap then strength = math.min(1, strength * 1.4) end
+                local maxStep = Settings.Rage and 55 or (silentSnap and 95 or 28)
                 local moveX = math.clamp(deltaX * strength, -maxStep, maxStep)
                 local moveY = math.clamp(deltaY * strength, -maxStep, maxStep)
 
@@ -603,10 +494,7 @@ end)
 
 local parent = getGuiParent()
 if not parent then warn("[YBTHU] No GUI parent") return end
-pcall(function()
-    local old = parent:FindFirstChild("YBTHU_BETA2")
-    if old then old:Destroy() end
-end)
+pcall(function() local old = parent:FindFirstChild("YBTHU_BETA2") if old then old:Destroy() end end)
 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "YBTHU_BETA2"
@@ -693,16 +581,8 @@ logo.Parent = screenGui
 Instance.new("UICorner", logo).CornerRadius = UDim.new(1, 0)
 
 local minimized = false
-minBtn.MouseButton1Click:Connect(function()
-    minimized = true
-    window.Visible = false
-    logo.Visible = true
-end)
-logo.MouseButton1Click:Connect(function()
-    minimized = false
-    window.Visible = true
-    logo.Visible = false
-end)
+minBtn.MouseButton1Click:Connect(function() minimized = true window.Visible = false logo.Visible = true end)
+logo.MouseButton1Click:Connect(function() minimized = false window.Visible = true logo.Visible = false end)
 
 do
     local dragging, dragStart, startPos = false, nil, nil
@@ -711,9 +591,7 @@ do
             dragging = true
             dragStart = input.Position
             startPos = window.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then dragging = false end
-            end)
+            input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
         end
     end)
     UserInputService.InputChanged:Connect(function(input)
@@ -763,7 +641,6 @@ local function makeToggle(labelKey, settingKey, order, onColor)
     row.LayoutOrder = order
     row.Parent = content
     Instance.new("UICorner", row).CornerRadius = UDim.new(0, 10)
-
     local name = Instance.new("TextLabel")
     name.Size = UDim2.new(0.6, 0, 1, 0)
     name.Position = UDim2.new(0, 12, 0, 0)
@@ -774,7 +651,6 @@ local function makeToggle(labelKey, settingKey, order, onColor)
     name.TextSize = 13
     name.TextXAlignment = Enum.TextXAlignment.Left
     name.Parent = row
-
     local value = Instance.new("TextButton")
     value.Size = UDim2.new(0, 70, 0, 28)
     value.Position = UDim2.new(1, -82, 0.5, -14)
@@ -785,20 +661,17 @@ local function makeToggle(labelKey, settingKey, order, onColor)
     value.TextSize = 12
     value.Parent = row
     Instance.new("UICorner", value).CornerRadius = UDim.new(0, 8)
-
     local function refresh()
         value.Text = Settings[settingKey] and "ON" or "OFF"
         value.BackgroundColor3 = Settings[settingKey] and (onColor or Theme.On) or Theme.Off
         name.Text = Texts[Settings.Language][labelKey]
     end
-
     value.MouseButton1Click:Connect(function()
         Settings[settingKey] = not Settings[settingKey]
         if settingKey == "Rage" and Settings.Rage then Settings.Aimbot = true end
         refresh()
         updateFOV()
     end)
-
     toggleRefs[labelKey] = refresh
     refresh()
 end
@@ -811,7 +684,6 @@ local function makeCycle(labelKey, order, getText, onClick)
     row.LayoutOrder = order
     row.Parent = content
     Instance.new("UICorner", row).CornerRadius = UDim.new(0, 10)
-
     local name = Instance.new("TextLabel")
     name.Size = UDim2.new(0.45, 0, 1, 0)
     name.Position = UDim2.new(0, 12, 0, 0)
@@ -822,7 +694,6 @@ local function makeCycle(labelKey, order, getText, onClick)
     name.TextSize = 13
     name.TextXAlignment = Enum.TextXAlignment.Left
     name.Parent = row
-
     local value = Instance.new("TextButton")
     value.Size = UDim2.new(0, 110, 0, 28)
     value.Position = UDim2.new(1, -122, 0.5, -14)
@@ -833,17 +704,8 @@ local function makeCycle(labelKey, order, getText, onClick)
     value.TextSize = 12
     value.Parent = row
     Instance.new("UICorner", value).CornerRadius = UDim.new(0, 8)
-
-    local function refresh()
-        value.Text = getText()
-        name.Text = Texts[Settings.Language][labelKey]
-    end
-
-    value.MouseButton1Click:Connect(function()
-        onClick()
-        refresh()
-    end)
-
+    local function refresh() value.Text = getText() name.Text = Texts[Settings.Language][labelKey] end
+    value.MouseButton1Click:Connect(function() onClick() refresh() end)
     toggleRefs[labelKey] = refresh
     refresh()
 end
@@ -879,16 +741,10 @@ end)
 section(Texts[Settings.Language].Visuals, 6)
 makeToggle("Esp", "ESP", 7)
 makeToggle("Fov", "ShowFOV", 8)
-makeCycle("Color", 9, function()
-    return Settings.ColorNames[Settings.Language][Settings.ColorIndex]
-end, function()
-    Settings.ColorIndex = Settings.ColorIndex % #Settings.ESPColors + 1
-end)
+makeCycle("Color", 9, function() return Settings.ColorNames[Settings.Language][Settings.ColorIndex] end, function() Settings.ColorIndex = Settings.ColorIndex % #Settings.ESPColors + 1 end)
 
 section(Texts[Settings.Language].Misc, 10)
-makeCycle("Lang", 11, function()
-    return Settings.Language
-end, function()
+makeCycle("Lang", 11, function() return Settings.Language end, function()
     Settings.Language = Settings.Language == "ES" and "EN" or "ES"
     local t = Texts[Settings.Language]
     titleLabel.Text = t.Title
@@ -917,10 +773,7 @@ do
     killBtn.Parent = content
     Instance.new("UICorner", killBtn).CornerRadius = UDim.new(0, 10)
     labelRefs.Kill = killBtn
-    local function doKill()
-        print("[YBTHU] Botón APAGAR presionado")
-        killScript()
-    end
+    local function doKill() print("[YBTHU] Botón APAGAR presionado") killScript() end
     killBtn.MouseButton1Click:Connect(doKill)
     killBtn.Activated:Connect(doKill)
 end
@@ -928,7 +781,7 @@ end
 local footer = Instance.new("TextLabel")
 footer.Size = UDim2.new(1, 0, 0, 40)
 footer.BackgroundTransparency = 1
-footer.Text = "Silent v3 + Aim ESTABLE | Insert = menú"
+footer.Text = "Silent v4 (snap) + Aim ESTABLE | Insert = menú"
 footer.TextColor3 = Theme.TextDim
 footer.Font = Enum.Font.Gotham
 footer.TextSize = 10
@@ -949,4 +802,4 @@ safeConnect(UserInputService.InputBegan, function(input, gp)
     end
 end)
 
-print("[YBTHU BETA 2 PRO] Mouse Aim ESTABLE + Silent Aim v3 anti-crash - APAGAR listo")
+print("[YBTHU BETA 2 PRO] Mouse Aim ESTABLE + Silent PRACTICO v4 - APAGAR listo")
