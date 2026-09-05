@@ -1338,48 +1338,47 @@ safeConnect(RunService.Heartbeat, function()
     end
 end)
 
--- ===================== SKIN CHANGER RIVALS (reescrito) =====================
--- Ruta real: PlayerScripts.Assets.ViewModels
--- Cases: "Skin Case 2", "Spooky Skin Case", "Festive Skin Case", "Other", etc.
--- Armas: ViewModels.Weapons.<WeaponName>
--- Equipado: workspace.ViewModels.FirstPerson["Nombre - Arma"]
+-- ===================== SKIN CHANGER REAL =====================
 local availableSkins = {}
 local currentSkinIndex = 1
 local originalBackups = {}
-local SKIN_CASE_KEYWORDS = { "skin", "case", "spooky", "festive", "other", "wrap", "charm", "season" }
 
 local function getViewModels()
-    -- Prioridad 1: ruta oficial de Rivals
-    local ok, vms = pcall(function()
-        local ps = LocalPlayer:FindFirstChild("PlayerScripts") or LocalPlayer:WaitForChild("PlayerScripts", 3)
-        if not ps then return nil end
-        local assets = ps:FindFirstChild("Assets") or ps:WaitForChild("Assets", 3)
-        if not assets then return nil end
-        return assets:FindFirstChild("ViewModels") or assets:WaitForChild("ViewModels", 3)
-    end)
-    if ok and vms then return vms end
-
-    -- Fallbacks
+    -- Busqueda mas robusta (Rivals cambia la estructura a veces)
     local candidates = {}
+    local function tryAdd(obj)
+        if obj then table.insert(candidates, obj) end
+    end
+
     pcall(function()
         local ps = LocalPlayer:FindFirstChild("PlayerScripts")
         if ps then
-            table.insert(candidates, ps:FindFirstChild("ViewModels"))
-            local a = ps:FindFirstChild("Assets")
-            if a then table.insert(candidates, a:FindFirstChild("ViewModels")) end
+            local assets = ps:FindFirstChild("Assets")
+            if assets then tryAdd(assets:FindFirstChild("ViewModels")) end
+            tryAdd(ps:FindFirstChild("ViewModels"))
         end
     end)
+
     pcall(function()
         local rs = game:GetService("ReplicatedStorage")
-        table.insert(candidates, rs:FindFirstChild("ViewModels"))
-        local a = rs:FindFirstChild("Assets")
-        if a then table.insert(candidates, a:FindFirstChild("ViewModels")) end
+        tryAdd(rs:FindFirstChild("ViewModels"))
+        local assets = rs:FindFirstChild("Assets")
+        if assets then tryAdd(assets:FindFirstChild("ViewModels")) end
     end)
-    for _, c in ipairs(candidates) do
-        if c and (c:FindFirstChild("Weapons") or #c:GetChildren() > 1) then return c end
+
+    pcall(function()
+        tryAdd(workspace:FindFirstChild("ViewModels"))
+    end)
+
+    for _, vm in ipairs(candidates) do
+        if vm and (vm:IsA("Folder") or vm:IsA("Model") or vm:IsA("Configuration")) then
+            if vm:FindFirstChild("Weapons") or #vm:GetChildren() > 2 then
+                return vm
+            end
+        end
     end
-    for _, c in ipairs(candidates) do
-        if c then return c end
+    for _, vm in ipairs(candidates) do
+        if vm then return vm end
     end
     return nil
 end
@@ -1395,7 +1394,8 @@ local function hideLocks()
                     gui.Visible = false
                     gui.ImageTransparency = 1
                 end
-            elseif gui:IsA("TextLabel") then
+            end
+            if gui:IsA("TextLabel") then
                 local t = string.lower(gui.Text or "")
                 if t:find("locked") or t:find("bloquead") then
                     gui.Visible = false
@@ -1405,66 +1405,32 @@ local function hideLocks()
     end)
 end
 
-local function isSkinCaseFolder(folder)
-    if not folder then return false end
-    local n = string.lower(folder.Name)
-    if n == "weapons" or n == "originalbackups" then return false end
-    for _, kw in ipairs(SKIN_CASE_KEYWORDS) do
-        if n:find(kw, 1, true) then return true end
-    end
-    -- Si tiene varios hijos modelo/folder, tambien cuenta
-    return #folder:GetChildren() > 0 and not folder:FindFirstChildOfClass("Humanoid")
-end
-
 local function collectSkins()
     availableSkins = {}
     local vms = getViewModels()
     if not vms then
-        print("[YBTHU] SkinChanger: NO se encontro ViewModels")
-        print("[YBTHU] Esperado: PlayerScripts.Assets.ViewModels")
+        print("[YBTHU] SkinChanger: No se encontro ViewModels. Rivals pudo haber cambiado la estructura.")
         return 0
     end
-    print("[YBTHU] SkinChanger: ViewModels =", vms:GetFullName())
-
+    print("[YBTHU] SkinChanger: ViewModels encontrado en", vms:GetFullName())
     pcall(function()
-        -- 1) Carpetas tipo Skin Case
         for _, case in ipairs(vms:GetChildren()) do
-            if isSkinCaseFolder(case) then
+            if case.Name ~= "Weapons" and case.Name ~= "OriginalBackups" then
                 for _, skin in ipairs(case:GetChildren()) do
-                    if skin:IsA("Folder") or skin:IsA("Model") or skin:IsA("Configuration") then
-                        table.insert(availableSkins, {
-                            name = skin.Name,
-                            path = skin,
-                            case = case.Name
-                        })
-                    end
+                    table.insert(availableSkins, { name = skin.Name, path = skin, case = case.Name })
                 end
             end
         end
-
-        -- 2) Skins sueltas en la raiz de ViewModels (no Weapons)
-        local weaponsFolder = vms:FindFirstChild("Weapons")
-        for _, child in ipairs(vms:GetChildren()) do
-            if child.Name ~= "Weapons" and child.Name ~= "OriginalBackups" and not isSkinCaseFolder(child) then
-                if child:IsA("Folder") or child:IsA("Model") then
-                    -- Evitar duplicar armas base
-                    local isBaseWeapon = weaponsFolder and weaponsFolder:FindFirstChild(child.Name)
-                    if not isBaseWeapon then
-                        table.insert(availableSkins, {
-                            name = child.Name,
-                            path = child,
-                            case = "Root"
-                        })
-                    end
+        -- Fallback: si no hay "cases", tomar hijos directos como skins
+        if #availableSkins == 0 then
+            for _, child in ipairs(vms:GetChildren()) do
+                if child.Name ~= "Weapons" and child.Name ~= "OriginalBackups" then
+                    table.insert(availableSkins, { name = child.Name, path = child, case = "Root" })
                 end
             end
         end
     end)
-
     print("[YBTHU] SkinChanger: skins encontradas =", #availableSkins)
-    if #availableSkins > 0 then
-        print("[YBTHU] Ejemplos:", availableSkins[1].name, availableSkins[math.min(2, #availableSkins)].name)
-    end
     return #availableSkins
 end
 
@@ -1483,11 +1449,9 @@ local function backupWeapon(weaponName)
             backupFolder.Name = "OriginalBackups"
             backupFolder.Parent = vms
         end
-        if not backupFolder:FindFirstChild(weaponName) then
-            local clone = weapon:Clone()
-            clone.Name = weaponName
-            clone.Parent = backupFolder
-        end
+        local clone = weapon:Clone()
+        clone.Name = weaponName
+        clone.Parent = backupFolder
         originalBackups[weaponName] = true
     end)
 end
@@ -1496,66 +1460,39 @@ local function applySkinToWeapon(skinData, weaponName)
     if not skinData or not weaponName then return false end
     local vms = getViewModels()
     if not vms then return false end
-
-    -- Preferir Weapons folder; si no, buscar en raiz
-    local weapon = nil
     local weapons = vms:FindFirstChild("Weapons")
-    if weapons then
-        weapon = weapons:FindFirstChild(weaponName)
-    end
-    if not weapon then
-        weapon = vms:FindFirstChild(weaponName)
-    end
-    if not weapon then
-        print("[YBTHU] SkinChanger: arma no encontrada:", weaponName)
-        return false
-    end
-
+    if not weapons then return false end
+    local weapon = weapons:FindFirstChild(weaponName)
+    if not weapon then return false end
     backupWeapon(weaponName)
-
-    local ok, err = pcall(function()
+    local ok = pcall(function()
         weapon:ClearAllChildren()
         for _, child in ipairs(skinData.path:GetChildren()) do
-            local c = child:Clone()
-            c.Parent = weapon
+            child:Clone().Parent = weapon
         end
     end)
-    if not ok then
-        print("[YBTHU] SkinChanger error al aplicar:", err)
-    end
     return ok
 end
 
 local function getCurrentEquippedWeapon()
     local name = nil
-    -- Metodo principal: workspace.ViewModels.FirstPerson["PlayerName - Weapon"]
     pcall(function()
         local wsv = workspace:FindFirstChild("ViewModels")
         local firstPerson = wsv and wsv:FindFirstChild("FirstPerson")
         if firstPerson then
             for _, vm in ipairs(firstPerson:GetChildren()) do
-                if typeof(vm.Name) == "string" and string.find(vm.Name, LocalPlayer.Name, 1, true) then
-                    -- Formato: "Nombre - Arma" o "Nombre - Arma - algo"
+                if vm:IsA("Model") and string.find(vm.Name, LocalPlayer.Name, 1, true) then
                     local parts = string.split(vm.Name, " - ")
-                    if #parts >= 2 then
-                        name = parts[2]
-                        break
-                    end
-                    -- Alternativa con match
-                    local m = string.match(vm.Name, "^" .. LocalPlayer.Name .. "%s*%-%s*(.+)$")
-                    if m then name = m break end
+                    if #parts >= 2 then name = parts[2] break end
                 end
             end
         end
-    end)
-    -- Fallback: Tool en character
-    if not name then
-        pcall(function()
+        if not name then
             local char = LocalPlayer.Character
             local tool = char and char:FindFirstChildOfClass("Tool")
             if tool then name = tool.Name end
-        end)
-    end
+        end
+    end)
     return name
 end
 
@@ -1567,7 +1504,7 @@ local function applyNextSkin()
     local count = #availableSkins
     if count == 0 then count = collectSkins() end
     if count == 0 then
-        notify("YBTHU", "No se encontraron skins (mira consola)", 3)
+        notify("YBTHU", "No se encontraron skins", 3)
         return
     end
     currentSkinIndex = (currentSkinIndex % count) + 1
@@ -1576,13 +1513,11 @@ local function applyNextSkin()
     if weaponName and skin then
         if applySkinToWeapon(skin, weaponName) then
             notify("YBTHU", "Skin: " .. (skin.name or "?") .. " → " .. weaponName, 2)
-            print("[YBTHU] Aplicada", skin.name, "de", skin.case, "en", weaponName)
         else
             notify("YBTHU", "No se pudo aplicar la skin", 2)
         end
     else
         notify("YBTHU", "Equipa un arma primero", 2)
-        print("[YBTHU] Arma equipada detectada:", tostring(weaponName))
     end
 end
 
@@ -1590,13 +1525,13 @@ local function setSkinChanger(on)
     Settings.SkinChanger = on
     if on then
         hideLocks()
-        local n = collectSkins()
+        collectSkins()
         if unlockConnection then pcall(function() unlockConnection:Disconnect() end) end
         unlockConnection = RunService.Heartbeat:Connect(function()
             if Settings.SkinChanger then hideLocks() end
         end)
         table.insert(allConnections, unlockConnection)
-        notify("YBTHU", "Skin ON · " .. tostring(n) .. " skins · tecla = para ciclar", 3)
+        notify("YBTHU", "Skin ON · candados ocultos · Siguiente Skin / tecla =", 3)
     else
         if unlockConnection then pcall(function() unlockConnection:Disconnect() end) end
         unlockConnection = nil
