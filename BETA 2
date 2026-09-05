@@ -1,6 +1,6 @@
 -- ============================================
--- YBTHU BETA 2 PRO (MOUSE AIM v2 - ESTABLE)
--- Aimbot mouse estable sin temblor + Silent + Rage + ESP + Kill
+-- YBTHU BETA 2 PRO (MOUSE AIM + SILENT REAL)
+-- Aimbot estable + Silent Aim real (hooks) + Rage + ESP + Kill
 -- ============================================
 
 local Players = game:GetService("Players")
@@ -36,12 +36,12 @@ local Settings = {
     ShowFOV = true,
     MaxDistance = 500,
     TargetPart = "Head",
-    Smoothness = 0.38,          -- Estable (sin temblor)
-    AimDeadzone = 5.0,          -- Evita micro-temblor
+    Smoothness = 0.38,
+    AimDeadzone = 5.0,
     SilentSmoothness = 0.70,
     RageSmoothness = 0.95,
     Prediction = 0.11,
-    MouseAccel = 0.95,          -- Suave
+    MouseAccel = 0.95,
     TargetRefresh = 0.055,
     WallCheck = false,
     IgnoreTeam = true,
@@ -281,6 +281,7 @@ local function getActiveFOV()
 end
 
 local currentTarget, stickyTarget = nil, nil
+local silentAimPos = nil
 local aiming = false
 local lastAutoFire = 0
 local lastScan = 0
@@ -350,6 +351,98 @@ local function doAutoFire()
     end)
 end
 
+-- ============================================
+-- SILENT AIM REAL (redirige rays / Mouse.Hit)
+-- ============================================
+local function silentActive()
+    if not running or not Settings.SilentAim then return false end
+    if Settings.Rage then return true end
+    local held = aiming
+    pcall(function()
+        held = held or UserInputService:IsMouseButtonPressed(Settings.AimKey)
+    end)
+    return held
+end
+
+local function getSilentTargetPos()
+    if not silentActive() then return nil end
+    if silentAimPos then return silentAimPos end
+    if currentTarget and currentTarget.Parent then
+        return getPredictedPosition(currentTarget)
+    end
+    return nil
+end
+
+pcall(function()
+    local mouse = LocalPlayer:GetMouse()
+    if not mouse then return end
+    local mt = getrawmetatable(mouse)
+    if not mt then return end
+    local oldIndex = mt.__index
+    setreadonly(mt, false)
+    mt.__index = newcclosure(function(self, key)
+        if running and Settings.SilentAim and (key == "Hit" or key == "UnitRay") then
+            local pos = getSilentTargetPos()
+            if pos then
+                local origin = Camera.CFrame.Position
+                if key == "Hit" then
+                    return CFrame.new(pos)
+                elseif key == "UnitRay" then
+                    local dir = (pos - origin).Unit
+                    return Ray.new(origin, dir * 1000)
+                end
+            end
+        end
+        return oldIndex(self, key)
+    end)
+    setreadonly(mt, true)
+end)
+
+pcall(function()
+    local mt = getrawmetatable(game)
+    if not mt then return end
+    local oldNamecall = mt.__namecall
+    setreadonly(mt, false)
+
+    local rayMethods = {
+        Raycast = true,
+        FindPartOnRay = true,
+        FindPartOnRayWithIgnoreList = true,
+        FindPartOnRayWithWhitelist = true,
+    }
+
+    mt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        local args = { ... }
+
+        if running and Settings.SilentAim and rayMethods[method] and not checkcaller() then
+            local pos = getSilentTargetPos()
+            if pos then
+                local origin = Camera.CFrame.Position
+                local direction = (pos - origin)
+
+                if method == "Raycast" then
+                    if typeof(args[1]) == "Vector3" and typeof(args[2]) == "Vector3" then
+                        args[1] = origin
+                        args[2] = direction.Unit * math.max(direction.Magnitude, 1000)
+                        return oldNamecall(self, unpack(args))
+                    end
+                elseif method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist" then
+                    if typeof(args[1]) == "Ray" then
+                        args[1] = Ray.new(origin, direction.Unit * 1000)
+                        return oldNamecall(self, unpack(args))
+                    end
+                end
+            end
+        end
+
+        return oldNamecall(self, ...)
+    end)
+    setreadonly(mt, true)
+end)
+
+print("[YBTHU] Silent Aim REAL activado (Mouse.Hit + Raycast hooks)")
+
 safeConnect(UserInputService.InputBegan, function(input, gp)
     if gp or not running then return end
     if input.UserInputType == Settings.AimKey then
@@ -365,6 +458,7 @@ safeConnect(UserInputService.InputEnded, function(input)
             stickyTarget = nil
             smoothedTarget = nil
             smoothedAimPosition = nil
+            silentAimPos = nil
         end
     end
 end)
@@ -393,6 +487,7 @@ safeConnect(RunService.RenderStepped, function(dt)
         stickyTarget = nil
         smoothedTarget = nil
         smoothedAimPosition = nil
+        silentAimPos = nil
         return
     end
 
@@ -403,9 +498,9 @@ safeConnect(RunService.RenderStepped, function(dt)
         smoothedTarget = currentTarget
         smoothedAimPosition = targetPos
     else
-        -- Suavizado lento = menos temblor
         smoothedAimPosition = smoothedAimPosition:Lerp(targetPos, math.clamp(dt * 7, 0.08, 0.28))
     end
+    silentAimPos = smoothedAimPosition
 
     local alpha
     if Settings.Rage then
@@ -426,7 +521,6 @@ safeConnect(RunService.RenderStepped, function(dt)
             local deltaY = screenPoint.Y - screenCenter.Y
             local screenOffset = math.sqrt(deltaX * deltaX + deltaY * deltaY)
 
-            -- Deadzone grande = no mueve si ya está centrado (elimina temblor)
             if screenOffset > Settings.AimDeadzone then
                 local frameAlpha = 1 - math.pow(1 - math.clamp(alpha, 0.05, 1), math.clamp(dt * 60, 0.35, 1.6))
 
@@ -434,7 +528,6 @@ safeConnect(RunService.RenderStepped, function(dt)
                 local distFactor = math.clamp(screenOffset / 140, 0.40, 1.05)
                 local strength = frameAlpha * distFactor * accel
 
-                -- Pasos pequeños por frame = mira estable
                 local maxStep = Settings.Rage and 55 or 28
                 local moveX = math.clamp(deltaX * strength, -maxStep, maxStep)
                 local moveY = math.clamp(deltaY * strength, -maxStep, maxStep)
@@ -879,7 +972,7 @@ end
 local footer = Instance.new("TextLabel")
 footer.Size = UDim2.new(1, 0, 0, 40)
 footer.BackgroundTransparency = 1
-footer.Text = "Mouse Aim ESTABLE | Insert = menú | Clic derecho = aim"
+footer.Text = "Silent REAL + Aim ESTABLE | Insert = menú"
 footer.TextColor3 = Theme.TextDim
 footer.Font = Enum.Font.Gotham
 footer.TextSize = 10
@@ -900,4 +993,4 @@ safeConnect(UserInputService.InputBegan, function(input, gp)
     end
 end)
 
-print("[YBTHU BETA 2 PRO] Mouse Aim ESTABLE (sin temblor) - APAGAR listo")
+print("[YBTHU BETA 2 PRO] Mouse Aim ESTABLE + Silent Aim REAL - APAGAR listo")
