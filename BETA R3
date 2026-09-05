@@ -723,57 +723,51 @@ safeConnect(UserInputService.InputEnded, function(input)
 end)
 
 -- =====================================================
--- SILENT AIM REAL (Raycast Hook)
--- No mueve la camara. Redirige el rayo del disparo al enemigo.
--- Solo cuando disparas (M1) o Rage. Sin AimKey.
+-- SILENT AIM REAL (hook SEGURO)
+-- Solo interviene en workspace:Raycast
+-- NO toca ScreenPointToRay / ViewportPointToRay (eso crasheaba)
+-- Solo cuando disparas (M1) o Rage
 -- =====================================================
 local silentHookInstalled = false
 pcall(function()
-    if typeof(getrawmetatable) ~= "function" then
-        print("[YBTHU] Silent Raycast: getrawmetatable no disponible")
-        return
-    end
+    if typeof(getrawmetatable) ~= "function" then return end
     local mt = getrawmetatable(game)
-    if not mt then return end
+    if not mt or not mt.__namecall then return end
     local oldNamecall = mt.__namecall
-    if typeof(setreadonly) == "function" then pcall(setreadonly, mt, false) end
+    pcall(function()
+        if typeof(setreadonly) == "function" then setreadonly(mt, false) end
+    end)
 
     local function namecallHook(self, ...)
-        local method = typeof(getnamecallmethod) == "function" and getnamecallmethod() or nil
-        local args = {...}
-
-        if running and Settings.SilentAim and rivalsSilentActive() and method then
-            local aimPos = getSilentAimPosition()
-            if aimPos then
-                -- workspace:Raycast(origin, direction, params)
-                if method == "Raycast" and self == workspace and typeof(args[1]) == "Vector3" and typeof(args[2]) == "Vector3" then
-                    local origin = args[1]
-                    local dir = aimPos - origin
-                    if dir.Magnitude > 0.01 then
-                        args[2] = dir.Unit * math.max(args[2].Magnitude, dir.Magnitude)
-                        return oldNamecall(self, table.unpack(args))
-                    end
-                end
-                -- FindPartOnRay variants
-                if method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist" then
-                    if typeof(args[1]) == "Ray" then
-                        local origin = args[1].Origin
-                        local dir = aimPos - origin
-                        if dir.Magnitude > 0.01 then
-                            args[1] = Ray.new(origin, dir.Unit * math.max(args[1].Direction.Magnitude, 500))
-                            return oldNamecall(self, table.unpack(args))
-                        end
-                    end
-                end
-                -- ScreenPointToRay / ViewportPointToRay
-                if (method == "ScreenPointToRay" or method == "ViewportPointToRay") and self == Camera then
-                    local origin = Camera.CFrame.Position
-                    local dir = aimPos - origin
-                    if dir.Magnitude > 0.01 then
-                        return Ray.new(origin, dir.Unit * 1000)
-                    end
-                end
+        -- Siempre devolver al original si algo falla
+        local args = { ... }
+        local success, result = pcall(function()
+            -- checkcaller evita bucles raros en algunos executors
+            if typeof(checkcaller) == "function" and checkcaller() then
+                return nil -- dejar pasar, se maneja abajo
             end
+            if not running or not Settings.SilentAim then return nil end
+            if not rivalsSilentActive() then return nil end
+
+            local method = typeof(getnamecallmethod) == "function" and getnamecallmethod() or nil
+            -- SOLO Raycast de workspace (nada de ScreenPointToRay)
+            if method ~= "Raycast" or self ~= workspace then return nil end
+            if typeof(args[1]) ~= "Vector3" or typeof(args[2]) ~= "Vector3" then return nil end
+
+            local aimPos = getSilentAimPosition()
+            if not aimPos then return nil end
+
+            local origin = args[1]
+            local dir = aimPos - origin
+            if dir.Magnitude < 0.05 then return nil end
+
+            local len = math.max(args[2].Magnitude, 1)
+            args[2] = dir.Unit * len
+            return true -- signal: use modified args
+        end)
+
+        if success and result == true then
+            return oldNamecall(self, table.unpack(args))
         end
         return oldNamecall(self, ...)
     end
@@ -783,22 +777,26 @@ pcall(function()
     else
         mt.__namecall = namecallHook
     end
-    if typeof(setreadonly) == "function" then pcall(setreadonly, mt, true) end
+    pcall(function()
+        if typeof(setreadonly) == "function" then setreadonly(mt, true) end
+    end)
     silentHookInstalled = true
-    print("[YBTHU] Silent Aim REAL (Raycast Hook) instalado")
+    print("[YBTHU] Silent Aim REAL: hook Raycast seguro instalado")
 end)
 
--- Fallback camera solo si el executor no soporta hook
+-- Si no hay hook, camera solo al disparar (no ideal pero no crashea)
 if not silentHookInstalled then
     pcall(function()
         RunService:BindToRenderStep("YBTHU_SilentRivals_R3", Enum.RenderPriority.Camera.Value + 1, function()
             if not running or not Settings.SilentAim then return end
             if not rivalsSilentActive() then return end
-            local aimPos = getSilentAimPosition()
-            if not aimPos then return end
-            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, aimPos)
+            local ok, aimPos = pcall(getSilentAimPosition)
+            if not ok or not aimPos then return end
+            pcall(function()
+                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, aimPos)
+            end)
         end)
-        print("[YBTHU] Silent Aim: fallback camera (sin metatable hook)")
+        print("[YBTHU] Silent Aim: fallback camera (executor sin metatable)")
     end)
 end
 
@@ -1338,47 +1336,48 @@ safeConnect(RunService.Heartbeat, function()
     end
 end)
 
--- ===================== SKIN CHANGER REAL =====================
+-- ===================== SKIN CHANGER RIVALS (reescrito) =====================
+-- Ruta real: PlayerScripts.Assets.ViewModels
+-- Cases: "Skin Case 2", "Spooky Skin Case", "Festive Skin Case", "Other", etc.
+-- Armas: ViewModels.Weapons.<WeaponName>
+-- Equipado: workspace.ViewModels.FirstPerson["Nombre - Arma"]
 local availableSkins = {}
 local currentSkinIndex = 1
 local originalBackups = {}
+local SKIN_CASE_KEYWORDS = { "skin", "case", "spooky", "festive", "other", "wrap", "charm", "season" }
 
 local function getViewModels()
-    -- Busqueda mas robusta (Rivals cambia la estructura a veces)
-    local candidates = {}
-    local function tryAdd(obj)
-        if obj then table.insert(candidates, obj) end
-    end
+    -- Prioridad 1: ruta oficial de Rivals (sin WaitForChild para no congelar)
+    local ok, vms = pcall(function()
+        local ps = LocalPlayer:FindFirstChild("PlayerScripts")
+        if not ps then return nil end
+        local assets = ps:FindFirstChild("Assets")
+        if not assets then return nil end
+        return assets:FindFirstChild("ViewModels")
+    end)
+    if ok and vms then return vms end
 
+    -- Fallbacks
+    local candidates = {}
     pcall(function()
         local ps = LocalPlayer:FindFirstChild("PlayerScripts")
         if ps then
-            local assets = ps:FindFirstChild("Assets")
-            if assets then tryAdd(assets:FindFirstChild("ViewModels")) end
-            tryAdd(ps:FindFirstChild("ViewModels"))
+            table.insert(candidates, ps:FindFirstChild("ViewModels"))
+            local a = ps:FindFirstChild("Assets")
+            if a then table.insert(candidates, a:FindFirstChild("ViewModels")) end
         end
     end)
-
     pcall(function()
         local rs = game:GetService("ReplicatedStorage")
-        tryAdd(rs:FindFirstChild("ViewModels"))
-        local assets = rs:FindFirstChild("Assets")
-        if assets then tryAdd(assets:FindFirstChild("ViewModels")) end
+        table.insert(candidates, rs:FindFirstChild("ViewModels"))
+        local a = rs:FindFirstChild("Assets")
+        if a then table.insert(candidates, a:FindFirstChild("ViewModels")) end
     end)
-
-    pcall(function()
-        tryAdd(workspace:FindFirstChild("ViewModels"))
-    end)
-
-    for _, vm in ipairs(candidates) do
-        if vm and (vm:IsA("Folder") or vm:IsA("Model") or vm:IsA("Configuration")) then
-            if vm:FindFirstChild("Weapons") or #vm:GetChildren() > 2 then
-                return vm
-            end
-        end
+    for _, c in ipairs(candidates) do
+        if c and (c:FindFirstChild("Weapons") or #c:GetChildren() > 1) then return c end
     end
-    for _, vm in ipairs(candidates) do
-        if vm then return vm end
+    for _, c in ipairs(candidates) do
+        if c then return c end
     end
     return nil
 end
@@ -1394,8 +1393,7 @@ local function hideLocks()
                     gui.Visible = false
                     gui.ImageTransparency = 1
                 end
-            end
-            if gui:IsA("TextLabel") then
+            elseif gui:IsA("TextLabel") then
                 local t = string.lower(gui.Text or "")
                 if t:find("locked") or t:find("bloquead") then
                     gui.Visible = false
@@ -1405,32 +1403,66 @@ local function hideLocks()
     end)
 end
 
+local function isSkinCaseFolder(folder)
+    if not folder then return false end
+    local n = string.lower(folder.Name)
+    if n == "weapons" or n == "originalbackups" then return false end
+    for _, kw in ipairs(SKIN_CASE_KEYWORDS) do
+        if n:find(kw, 1, true) then return true end
+    end
+    -- Si tiene varios hijos modelo/folder, tambien cuenta
+    return #folder:GetChildren() > 0 and not folder:FindFirstChildOfClass("Humanoid")
+end
+
 local function collectSkins()
     availableSkins = {}
     local vms = getViewModels()
     if not vms then
-        print("[YBTHU] SkinChanger: No se encontro ViewModels. Rivals pudo haber cambiado la estructura.")
+        print("[YBTHU] SkinChanger: NO se encontro ViewModels")
+        print("[YBTHU] Esperado: PlayerScripts.Assets.ViewModels")
         return 0
     end
-    print("[YBTHU] SkinChanger: ViewModels encontrado en", vms:GetFullName())
+    print("[YBTHU] SkinChanger: ViewModels =", vms:GetFullName())
+
     pcall(function()
+        -- 1) Carpetas tipo Skin Case
         for _, case in ipairs(vms:GetChildren()) do
-            if case.Name ~= "Weapons" and case.Name ~= "OriginalBackups" then
+            if isSkinCaseFolder(case) then
                 for _, skin in ipairs(case:GetChildren()) do
-                    table.insert(availableSkins, { name = skin.Name, path = skin, case = case.Name })
+                    if skin:IsA("Folder") or skin:IsA("Model") or skin:IsA("Configuration") then
+                        table.insert(availableSkins, {
+                            name = skin.Name,
+                            path = skin,
+                            case = case.Name
+                        })
+                    end
                 end
             end
         end
-        -- Fallback: si no hay "cases", tomar hijos directos como skins
-        if #availableSkins == 0 then
-            for _, child in ipairs(vms:GetChildren()) do
-                if child.Name ~= "Weapons" and child.Name ~= "OriginalBackups" then
-                    table.insert(availableSkins, { name = child.Name, path = child, case = "Root" })
+
+        -- 2) Skins sueltas en la raiz de ViewModels (no Weapons)
+        local weaponsFolder = vms:FindFirstChild("Weapons")
+        for _, child in ipairs(vms:GetChildren()) do
+            if child.Name ~= "Weapons" and child.Name ~= "OriginalBackups" and not isSkinCaseFolder(child) then
+                if child:IsA("Folder") or child:IsA("Model") then
+                    -- Evitar duplicar armas base
+                    local isBaseWeapon = weaponsFolder and weaponsFolder:FindFirstChild(child.Name)
+                    if not isBaseWeapon then
+                        table.insert(availableSkins, {
+                            name = child.Name,
+                            path = child,
+                            case = "Root"
+                        })
+                    end
                 end
             end
         end
     end)
+
     print("[YBTHU] SkinChanger: skins encontradas =", #availableSkins)
+    if #availableSkins > 0 then
+        print("[YBTHU] Ejemplos:", availableSkins[1].name, availableSkins[math.min(2, #availableSkins)].name)
+    end
     return #availableSkins
 end
 
@@ -1449,9 +1481,11 @@ local function backupWeapon(weaponName)
             backupFolder.Name = "OriginalBackups"
             backupFolder.Parent = vms
         end
-        local clone = weapon:Clone()
-        clone.Name = weaponName
-        clone.Parent = backupFolder
+        if not backupFolder:FindFirstChild(weaponName) then
+            local clone = weapon:Clone()
+            clone.Name = weaponName
+            clone.Parent = backupFolder
+        end
         originalBackups[weaponName] = true
     end)
 end
@@ -1460,39 +1494,66 @@ local function applySkinToWeapon(skinData, weaponName)
     if not skinData or not weaponName then return false end
     local vms = getViewModels()
     if not vms then return false end
+
+    -- Preferir Weapons folder; si no, buscar en raiz
+    local weapon = nil
     local weapons = vms:FindFirstChild("Weapons")
-    if not weapons then return false end
-    local weapon = weapons:FindFirstChild(weaponName)
-    if not weapon then return false end
+    if weapons then
+        weapon = weapons:FindFirstChild(weaponName)
+    end
+    if not weapon then
+        weapon = vms:FindFirstChild(weaponName)
+    end
+    if not weapon then
+        print("[YBTHU] SkinChanger: arma no encontrada:", weaponName)
+        return false
+    end
+
     backupWeapon(weaponName)
-    local ok = pcall(function()
+
+    local ok, err = pcall(function()
         weapon:ClearAllChildren()
         for _, child in ipairs(skinData.path:GetChildren()) do
-            child:Clone().Parent = weapon
+            local c = child:Clone()
+            c.Parent = weapon
         end
     end)
+    if not ok then
+        print("[YBTHU] SkinChanger error al aplicar:", err)
+    end
     return ok
 end
 
 local function getCurrentEquippedWeapon()
     local name = nil
+    -- Metodo principal: workspace.ViewModels.FirstPerson["PlayerName - Weapon"]
     pcall(function()
         local wsv = workspace:FindFirstChild("ViewModels")
         local firstPerson = wsv and wsv:FindFirstChild("FirstPerson")
         if firstPerson then
             for _, vm in ipairs(firstPerson:GetChildren()) do
-                if vm:IsA("Model") and string.find(vm.Name, LocalPlayer.Name, 1, true) then
+                if typeof(vm.Name) == "string" and string.find(vm.Name, LocalPlayer.Name, 1, true) then
+                    -- Formato: "Nombre - Arma" o "Nombre - Arma - algo"
                     local parts = string.split(vm.Name, " - ")
-                    if #parts >= 2 then name = parts[2] break end
+                    if #parts >= 2 then
+                        name = parts[2]
+                        break
+                    end
+                    -- Alternativa con match
+                    local m = string.match(vm.Name, "^" .. LocalPlayer.Name .. "%s*%-%s*(.+)$")
+                    if m then name = m break end
                 end
             end
         end
-        if not name then
+    end)
+    -- Fallback: Tool en character
+    if not name then
+        pcall(function()
             local char = LocalPlayer.Character
             local tool = char and char:FindFirstChildOfClass("Tool")
             if tool then name = tool.Name end
-        end
-    end)
+        end)
+    end
     return name
 end
 
@@ -1504,7 +1565,7 @@ local function applyNextSkin()
     local count = #availableSkins
     if count == 0 then count = collectSkins() end
     if count == 0 then
-        notify("YBTHU", "No se encontraron skins", 3)
+        notify("YBTHU", "No se encontraron skins (mira consola)", 3)
         return
     end
     currentSkinIndex = (currentSkinIndex % count) + 1
@@ -1513,11 +1574,13 @@ local function applyNextSkin()
     if weaponName and skin then
         if applySkinToWeapon(skin, weaponName) then
             notify("YBTHU", "Skin: " .. (skin.name or "?") .. " → " .. weaponName, 2)
+            print("[YBTHU] Aplicada", skin.name, "de", skin.case, "en", weaponName)
         else
             notify("YBTHU", "No se pudo aplicar la skin", 2)
         end
     else
         notify("YBTHU", "Equipa un arma primero", 2)
+        print("[YBTHU] Arma equipada detectada:", tostring(weaponName))
     end
 end
 
@@ -1525,13 +1588,18 @@ local function setSkinChanger(on)
     Settings.SkinChanger = on
     if on then
         hideLocks()
-        collectSkins()
+        local n = collectSkins()
         if unlockConnection then pcall(function() unlockConnection:Disconnect() end) end
+        local lastHide = 0
         unlockConnection = RunService.Heartbeat:Connect(function()
-            if Settings.SkinChanger then hideLocks() end
+            if not Settings.SkinChanger then return end
+            local now = tick()
+            if now - lastHide < 0.5 then return end -- no escanear cada frame (causaba lag/crash)
+            lastHide = now
+            hideLocks()
         end)
         table.insert(allConnections, unlockConnection)
-        notify("YBTHU", "Skin ON · candados ocultos · Siguiente Skin / tecla =", 3)
+        notify("YBTHU", "Skin ON · " .. tostring(n) .. " skins · tecla = para ciclar", 3)
     else
         if unlockConnection then pcall(function() unlockConnection:Disconnect() end) end
         unlockConnection = nil
@@ -2268,4 +2336,4 @@ print("[YBTHU] mousemoverel: " .. (typeof(mousemoverel) == "function" and "SI" o
 print("[YBTHU] IgnoreFriends = ON (ya no se pega a tus amigos)")
 print("[YBTHU] IgnoreTeam mejorado (varios metodos de deteccion)")
 print("[YBTHU] Aimbot mejorado: mas preciso, mejor prediccion, menos overshoot")
-print("[YBTHU] Silent Aim REAL: Raycast Hook (sin mover camara, solo al disparar)")
+print("[YBTHU] Silent Aim: hook Raycast seguro (sin ScreenPointToRay)")
