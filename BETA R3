@@ -1,9 +1,8 @@
 -- ============================================
--- YBTHU BETA R3 ULTRA - FULL RIVALS
--- Aimbot + Silent Aim + Triggerbot + Rage
--- ESP completo (Boxes, Names, Health, Skeleton, Arrows, Tracers, Chams)
--- Skin Changer mejorado + Config Save/Load + Keybinds
--- Hard Guard incluido
+-- YBTHU BETA R3 FIXED - FULL RIVALS
+-- Bugs corregidos: Drawing, leaks, instancia doble,
+-- Silent sin snap de click, Gun Mods reales,
+-- Skin swap, Config UI, Keybinds, Sliders
 -- ============================================
 
 local Players = game:GetService("Players")
@@ -16,6 +15,13 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 local Runtime = getgenv and getgenv() or _G
+
+-- Matar instancia anterior ANTES de crear la nueva
+if Runtime.__YBTHU_R3_KILL then
+    pcall(Runtime.__YBTHU_R3_KILL)
+    task.wait(0.05)
+end
+
 local INSTANCE_TOKEN = tostring(os.clock()) .. tostring(math.random(100000, 999999))
 Runtime.__YBTHU_BETA_R3_TOKEN = INSTANCE_TOKEN
 
@@ -23,7 +29,8 @@ local running = true
 local allConnections = {}
 local screenGuiRef = nil
 local fovGuiRef = nil
-local drawingAvailable = typeof(Drawing) == "table"
+local buildUI -- forward
+local refreshUIFromSettings -- forward
 
 local function safeConnect(signal, fn)
     local conn = signal:Connect(fn)
@@ -31,9 +38,16 @@ local function safeConnect(signal, fn)
     return conn
 end
 
--- ===================== SETTINGS =====================
+-- Drawing real (muchos executors lo dan como userdata, no table)
+local drawingAvailable = false
+pcall(function()
+    local probe = Drawing.new("Line")
+    probe.Visible = false
+    if probe.Remove then probe:Remove() elseif probe.Destroy then probe:Destroy() end
+    drawingAvailable = true
+end)
+
 local Settings = {
-    -- Combat
     Aimbot = true,
     SilentAim = true,
     Rage = false,
@@ -57,7 +71,6 @@ local Settings = {
     HitChance = 100,
     AutoFireRate = 0.10,
 
-    -- Visuals / ESP
     ESP = true,
     ESPBoxes = true,
     ESPNames = true,
@@ -67,16 +80,16 @@ local Settings = {
     ESPChams = true,
     ESPSkeleton = true,
     ESPArrows = true,
+    ESPNameRGB = true,
+    TitleRGB = true,
     ColorIndex = 1,
     MaxESPDistance = 500,
 
-    -- Gun Mods
     NoRecoil = false,
     RapidFire = false,
     AntiFlash = false,
     AntiSmoke = false,
 
-    -- Misc
     SkinChanger = false,
     Language = "ES",
     MenuKey = Enum.KeyCode.Insert,
@@ -99,8 +112,30 @@ local Settings = {
     },
 }
 
--- ===================== CONFIG SAVE / LOAD =====================
 local CONFIG_NAME = "YBTHU_BETA_R3_Config.json"
+local toggleRefs = {}
+local sliderRefs = {}
+local uiLabelRefs = {}
+
+local function restoreEnum(str)
+    if type(str) ~= "string" then return nil end
+    local enumType, name = string.match(str, "Enum%.(%w+)%.(%w+)")
+    if enumType and name then
+        local ok, val = pcall(function() return Enum[enumType][name] end)
+        if ok and val then return val end
+    end
+    local nameOnly = string.match(str, "([^%.]+)$")
+    if nameOnly then
+        if Enum.KeyCode[nameOnly] then return Enum.KeyCode[nameOnly] end
+        if Enum.UserInputType[nameOnly] then return Enum.UserInputType[nameOnly] end
+    end
+    return nil
+end
+
+local function enumName(e)
+    local s = tostring(e)
+    return (string.gsub(s, "Enum%.KeyCode%.", ""):gsub("Enum%.UserInputType%.", ""))
+end
 
 local function saveConfig()
     local data = {
@@ -128,10 +163,15 @@ local function saveConfig()
         ESPChams = Settings.ESPChams,
         ESPSkeleton = Settings.ESPSkeleton,
         ESPArrows = Settings.ESPArrows,
+        ESPNameRGB = Settings.ESPNameRGB,
+        TitleRGB = Settings.TitleRGB,
         ColorIndex = Settings.ColorIndex,
         MaxESPDistance = Settings.MaxESPDistance,
         NoRecoil = Settings.NoRecoil,
         RapidFire = Settings.RapidFire,
+        AntiFlash = Settings.AntiFlash,
+        AntiSmoke = Settings.AntiSmoke,
+        SkinChanger = Settings.SkinChanger,
         Language = Settings.Language,
         MenuKey = tostring(Settings.MenuKey),
         AimKey = tostring(Settings.AimKey),
@@ -139,23 +179,26 @@ local function saveConfig()
     local ok, encoded = pcall(function()
         return HttpService:JSONEncode(data)
     end)
-    if not ok then return false end
+    if not ok or not encoded then return false end
     if writefile then
-        pcall(function() writefile(CONFIG_NAME, encoded) end)
-        return true
-    elseif Runtime then
-        Runtime.__YBTHU_R3_CONFIG = encoded
-        return true
+        local wok = pcall(function() writefile(CONFIG_NAME, encoded) end)
+        if wok then
+            Runtime.__YBTHU_R3_CONFIG = encoded
+            return true
+        end
+        return false
     end
-    return false
+    Runtime.__YBTHU_R3_CONFIG = encoded
+    return true
 end
 
 local function loadConfig()
     local raw = nil
-    if readfile and isfile and isfile(CONFIG_NAME) then
+    if isfile and readfile and isfile(CONFIG_NAME) then
         local ok, content = pcall(readfile, CONFIG_NAME)
         if ok then raw = content end
-    elseif Runtime and Runtime.__YBTHU_R3_CONFIG then
+    end
+    if not raw and Runtime.__YBTHU_R3_CONFIG then
         raw = Runtime.__YBTHU_R3_CONFIG
     end
     if not raw then return false end
@@ -164,26 +207,71 @@ local function loadConfig()
     end)
     if not ok or type(data) ~= "table" then return false end
     for k, v in pairs(data) do
-        if Settings[k] ~= nil and k ~= "MenuKey" and k ~= "AimKey" then
+        if Settings[k] ~= nil and k ~= "MenuKey" and k ~= "AimKey" and k ~= "ESPColors" and k ~= "ColorNames" and k ~= "PartNames" then
             Settings[k] = v
         end
     end
-    -- Keybinds restore (best effort)
-    if data.MenuKey and string.find(data.MenuKey, "Insert") then
-        Settings.MenuKey = Enum.KeyCode.Insert
-    elseif data.MenuKey and string.find(data.MenuKey, "RightShift") then
-        Settings.MenuKey = Enum.KeyCode.RightShift
-    end
+    local mk = restoreEnum(data.MenuKey)
+    if mk then Settings.MenuKey = mk end
+    local ak = restoreEnum(data.AimKey)
+    if ak then Settings.AimKey = ak end
     return true
 end
 
 pcall(loadConfig)
 
--- ===================== KILL SCRIPT =====================
 local pbSavedCFrame, pbUntil, pbBusy, lastPB = nil, 0, false, 0
+local espCache = {}
+local unlockConnection = nil
+
+local function destroyDrawingObject(obj)
+    if obj == nil then return end
+    if type(obj) == "table" and not obj.Remove and not obj.Destroy then
+        for _, v in pairs(obj) do
+            destroyDrawingObject(v)
+        end
+        return
+    end
+    pcall(function()
+        if typeof(obj) == "Instance" then
+            obj:Destroy()
+        elseif obj.Remove then
+            obj:Remove()
+        elseif obj.Destroy then
+            obj:Destroy()
+        end
+    end)
+end
+
+local function destroyESP(player)
+    local cache = espCache[player]
+    if not cache then return end
+    destroyDrawingObject(cache)
+    espCache[player] = nil
+end
+
+local function destroyAllESP()
+    for player, _ in pairs(espCache) do
+        destroyESP(player)
+    end
+    espCache = {}
+    pcall(function()
+        for _, p in ipairs(Players:GetPlayers()) do
+            local char = p.Character
+            if char then
+                for _, ch in ipairs(char:GetChildren()) do
+                    if ch:IsA("Highlight") and (ch.Name == "YBTHU_Chams" or true) then
+                        if ch.Name == "YBTHU_Chams" then pcall(function() ch:Destroy() end) end
+                    end
+                end
+            end
+        end
+    end)
+end
 
 local function killScript()
     if running == false then return end
+    if Runtime.__YBTHU_BETA_R3_TOKEN ~= INSTANCE_TOKEN then return end
     running = false
     Settings.Aimbot = false
     Settings.SilentAim = false
@@ -191,21 +279,14 @@ local function killScript()
     Settings.ESP = false
     Settings.ShowFOV = false
     Settings.Triggerbot = false
+    Settings.RapidFire = false
     for i = 1, #allConnections do
         local c = allConnections[i]
         if c then pcall(function() c:Disconnect() end) end
     end
     allConnections = {}
-    pcall(function()
-        for _, p in ipairs(Players:GetPlayers()) do
-            local char = p.Character
-            if char then
-                for _, ch in ipairs(char:GetChildren()) do
-                    if ch:IsA("Highlight") then pcall(function() ch:Destroy() end) end
-                end
-            end
-        end
-    end)
+    pcall(function() if unlockConnection then unlockConnection:Disconnect() end end)
+    destroyAllESP()
     pcall(function() if fovGuiRef then fovGuiRef:Destroy() end end)
     pcall(function() if screenGuiRef then screenGuiRef:Destroy() end end)
     local names = {"YBTHU_BETA_R3", "YBTHU_FOV"}
@@ -229,13 +310,17 @@ local function killScript()
         pbSavedCFrame = nil
         pbBusy = false
     end)
-    print("[YBTHU BETA R3 ULTRA] Script completamente apagado")
+    if Runtime.__YBTHU_R3_KILL == killScript then
+        Runtime.__YBTHU_R3_KILL = nil
+    end
+    print("[YBTHU BETA R3 FIXED] Script apagado")
 end
 
--- ===================== TEXTS =====================
+Runtime.__YBTHU_R3_KILL = killScript
+
 local Texts = {
     ES = {
-        Title = "YBTHU", Sub = "BETA R3 ULTRA",
+        Title = "YBTHU", Sub = "BETA R3 FIXED",
         Combat = "COMBATE", Visuals = "VISUALES", GunMods = "GUN MODS", Misc = "AJUSTES",
         Aim = "Aimbot", Silent = "Silent Aim", Trigger = "Triggerbot", Rage = "Rage Aim",
         Esp = "ESP", Skin = "Skin Changer", Fov = "FOV Circle", Part = "Target Part",
@@ -243,12 +328,15 @@ local Texts = {
         Notify = "Link copiado", Credit = "Creado por Brayan (YBTHU)",
         Boxes = "Boxes", Names = "Nombres", Health = "Vida", Distance = "Distancia",
         Tracers = "Tracers", Chams = "Chams", Skeleton = "Skeleton", Arrows = "Arrows",
+        RGB = "RGB Nombres", TitleRGB = "RGB Título",
         NoRecoil = "No Recoil", Rapid = "Rapid Fire", Sticky = "Sticky Aim",
         Wall = "Wall Check", Team = "Ignore Team", Save = "Guardar Config", Load = "Cargar Config",
-        MenuKey = "Tecla Menú", AimKeyBind = "Tecla Aim"
+        MenuKey = "Tecla Menú", AimKeyBind = "Tecla Aim",
+        Pred = "Prediction", Smooth = "Smoothness", FOVSize = "FOV", Hit = "HitChance",
+        MaxDist = "Max Distance", AntiFlash = "Anti Flash", AntiSmoke = "Anti Smoke"
     },
     EN = {
-        Title = "YBTHU", Sub = "BETA R3 ULTRA",
+        Title = "YBTHU", Sub = "BETA R3 FIXED",
         Combat = "COMBAT", Visuals = "VISUALS", GunMods = "GUN MODS", Misc = "SETTINGS",
         Aim = "Aimbot", Silent = "Silent Aim", Trigger = "Triggerbot", Rage = "Rage Aim",
         Esp = "ESP", Skin = "Skin Changer", Fov = "FOV Circle", Part = "Target Part",
@@ -256,15 +344,21 @@ local Texts = {
         Notify = "Link copied", Credit = "Created by Brayan (YBTHU)",
         Boxes = "Boxes", Names = "Names", Health = "Health", Distance = "Distance",
         Tracers = "Tracers", Chams = "Chams", Skeleton = "Skeleton", Arrows = "Arrows",
+        RGB = "RGB Names", TitleRGB = "RGB Title",
         NoRecoil = "No Recoil", Rapid = "Rapid Fire", Sticky = "Sticky Aim",
         Wall = "Wall Check", Team = "Ignore Team", Save = "Save Config", Load = "Load Config",
-        MenuKey = "Menu Key", AimKeyBind = "Aim Key"
+        MenuKey = "Menu Key", AimKeyBind = "Aim Key",
+        Pred = "Prediction", Smooth = "Smoothness", FOVSize = "FOV", Hit = "HitChance",
+        MaxDist = "Max Distance", AntiFlash = "Anti Flash", AntiSmoke = "Anti Smoke"
     },
 }
 
 local DISCORD_URL = "https://discord.gg/b9mvbR6rq"
 local PART_CYCLE = { "Head", "UpperTorso", "HumanoidRootPart" }
 local partIndex = 1
+for i, v in ipairs(PART_CYCLE) do
+    if v == Settings.TargetPart then partIndex = i break end
+end
 
 local Theme = {
     Bg = Color3.fromRGB(16, 16, 22),
@@ -300,7 +394,27 @@ end
 
 notify("YBTHU", Texts[Settings.Language].Credit, 5)
 
--- ===================== CORE AIM (PRESERVED + HARD GUARD) =====================
+local function isAimHeld()
+    local key = Settings.AimKey
+    if not key then return false end
+    local ok, held = pcall(function()
+        if key.EnumType == Enum.UserInputType then
+            return UserInputService:IsMouseButtonPressed(key)
+        elseif key.EnumType == Enum.KeyCode then
+            return UserInputService:IsKeyDown(key)
+        end
+        return false
+    end)
+    return ok and held
+end
+
+local function isM1Held()
+    local ok, held = pcall(function()
+        return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+    end)
+    return ok and held
+end
+
 local function getPart(character)
     if not character then return nil end
     if Settings.Rage then
@@ -321,8 +435,9 @@ end
 
 local function isValidPlayer(player)
     if player == LocalPlayer then return false end
-    if Settings.IgnoreTeam and player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then
-        return false
+    if Settings.IgnoreTeam then
+        if player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then return false end
+        if player.TeamColor and LocalPlayer.TeamColor and player.TeamColor == LocalPlayer.TeamColor then return false end
     end
     return isAlive(player.Character)
 end
@@ -333,6 +448,9 @@ local function hasLineOfSight(fromPos, toPart, character)
     params.FilterType = Enum.RaycastFilterType.Exclude
     local filter = { Camera }
     if LocalPlayer.Character then table.insert(filter, LocalPlayer.Character) end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Character then table.insert(filter, p.Character) end
+    end
     params.FilterDescendantsInstances = filter
     local result = workspace:Raycast(fromPos, toPart.Position - fromPos, params)
     if not result then return true end
@@ -357,13 +475,17 @@ local function getActiveFOV()
     return Settings.Rage and Settings.RageFOV or Settings.FOV
 end
 
+local function passHitChance()
+    if Settings.HitChance >= 100 then return true end
+    return math.random(1, 100) <= Settings.HitChance
+end
+
 local currentTarget, stickyTarget = nil, nil
 local silentAimPos = nil
 local aiming = false
 local lastScan = 0
 local targetRefreshRate = Settings.TargetRefresh or 0.055
 local smoothedAimPosition, smoothedTarget = nil, nil
-local silentSnapUntil = 0
 
 local function getClosestTarget()
     local fov = getActiveFOV()
@@ -464,26 +586,24 @@ end
 local function rivalsSilentActive()
     if not running or not Settings.SilentAim then return false end
     if Settings.Rage then return true end
-    local ok = aiming
-    pcall(function()
-        if UserInputService:IsMouseButtonPressed(Settings.AimKey) then ok = true end
-        if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then ok = true end
-    end)
-    if tick() < silentSnapUntil then ok = true end
-    return ok
+    -- Solo AimKey. NUNCA click izquierdo suelto (era el snap al disparar)
+    return aiming or isAimHeld()
 end
 
 safeConnect(UserInputService.InputBegan, function(input, gp)
     if gp or not running then return end
-    if input.UserInputType == Settings.AimKey then aiming = true end
+    if Settings.AimKey and input.UserInputType == Settings.AimKey then aiming = true end
+    if Settings.AimKey and input.KeyCode == Settings.AimKey then aiming = true end
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        if Settings.SilentAim then silentSnapUntil = tick() + 0.18 end
         if Settings.Rage then pcall(doPointBlankWallbang) end
     end
 end)
 
 safeConnect(UserInputService.InputEnded, function(input)
-    if input.UserInputType == Settings.AimKey then
+    local ended = false
+    if Settings.AimKey and input.UserInputType == Settings.AimKey then ended = true end
+    if Settings.AimKey and input.KeyCode == Settings.AimKey then ended = true end
+    if ended then
         aiming = false
         if not Settings.StickyAim then
             currentTarget = nil
@@ -495,10 +615,14 @@ safeConnect(UserInputService.InputEnded, function(input)
     end
 end)
 
+-- Silent: SOLO mueve cámara si Silent está ON y Aimbot está OFF (si ambos, el mouse gana)
 pcall(function()
     RunService:BindToRenderStep("YBTHU_SilentRivals_R3", Enum.RenderPriority.Camera.Value + 1, function()
         if not running or not Settings.SilentAim then return end
+        if Settings.Aimbot and not Settings.Rage then return end -- evitar pelea
         if not rivalsSilentActive() then return end
+        if not passHitChance() then return end
+
         local part = currentTarget
         if not part or not part.Parent then
             part = getClosestTarget()
@@ -519,27 +643,31 @@ pcall(function()
     end)
 end)
 
--- Triggerbot
+-- Triggerbot (sin yield)
 local lastTriggerShot = 0
 safeConnect(RunService.Heartbeat, function()
     if not running or not Settings.Triggerbot then return end
     if tick() - lastTriggerShot < (Settings.AutoFireRate or 0.10) then return end
-    if Settings.HitChance < 100 and math.random(1, 100) > Settings.HitChance then return end
+    if not passHitChance() then return end
     local mouse = LocalPlayer:GetMouse()
     if not mouse or not mouse.Target then return end
     local model = mouse.Target:FindFirstAncestorOfClass("Model")
     if not model then return end
     local player = Players:GetPlayerFromCharacter(model)
     if player and isValidPlayer(player) then
-        pcall(function()
-            if mouse1click then mouse1click()
-            elseif mouse1press then mouse1press() task.wait(0.02) mouse1release() end
-        end)
         lastTriggerShot = tick()
+        pcall(function()
+            if mouse1click then
+                mouse1click()
+            elseif mouse1press and mouse1release then
+                mouse1press()
+                mouse1release()
+            end
+        end)
     end
 end)
 
--- Main aim + Hard Guard
+-- Aim principal + Hard Guard
 safeConnect(RunService.RenderStepped, function(dt)
     if not running then return end
     if pbBusy and tick() >= pbUntil then restorePointBlank() end
@@ -550,20 +678,16 @@ safeConnect(RunService.RenderStepped, function(dt)
         smoothedTarget = nil
         smoothedAimPosition = nil
         silentAimPos = nil
-        silentSnapUntil = 0
         aiming = false
         return
     end
 
-    local mouseHeld, mouse1Held = false, false
-    pcall(function()
-        mouseHeld = UserInputService:IsMouseButtonPressed(Settings.AimKey)
-        mouse1Held = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
-    end)
-    local silentSnap = Settings.SilentAim and (tick() < silentSnapUntil or mouse1Held)
+    local mouseHeld = isAimHeld()
+    local mouse1Held = isM1Held()
     if Settings.Rage and mouse1Held then pcall(doPointBlankWallbang) end
-    local shouldAim = Settings.Rage or ((Settings.Aimbot or Settings.SilentAim) and (aiming or mouseHeld or mouse1Held or silentSnap))
+    local shouldAim = Settings.Rage or ((Settings.Aimbot or Settings.SilentAim) and (aiming or mouseHeld))
     if not shouldAim then return end
+    if not passHitChance() then return end
 
     local now = os.clock()
     local refresh = Settings.Rage and 0.03 or targetRefreshRate
@@ -593,40 +717,38 @@ safeConnect(RunService.RenderStepped, function(dt)
     end
     silentAimPos = smoothedAimPosition
 
+    if not (Settings.Aimbot or Settings.Rage) then return end
+
     local alpha
     if Settings.Rage then alpha = Settings.RageSmoothness
-    elseif silentSnap then alpha = 0.88
-    elseif Settings.SilentAim and not Settings.Aimbot then alpha = 0.85
     elseif Settings.SilentAim then alpha = Settings.SilentSmoothness
     else alpha = Settings.Smoothness end
 
-    if Settings.Aimbot or Settings.Rage then
-        local screenPoint, onScreen = Camera:WorldToViewportPoint(smoothedAimPosition)
-        if onScreen and screenPoint.Z > 0 then
-            local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-            local deltaX = screenPoint.X - screenCenter.X
-            local deltaY = screenPoint.Y - screenCenter.Y
-            local screenOffset = math.sqrt(deltaX * deltaX + deltaY * deltaY)
-            local deadzone = Settings.Rage and 2.0 or Settings.AimDeadzone
-            if screenOffset > deadzone then
-                local frameAlpha = 1 - math.pow(1 - math.clamp(alpha, 0.05, 1), math.clamp(dt * 60, 0.35, 1.6))
-                local accel = Settings.MouseAccel or 0.95
-                local distFactor = math.clamp(screenOffset / 140, 0.40, 1.05)
-                local strength = frameAlpha * distFactor * accel
-                local maxStep = Settings.Rage and 90 or 28
-                local moveX = math.clamp(deltaX * strength, -maxStep, maxStep)
-                local moveY = math.clamp(deltaY * strength, -maxStep, maxStep)
-                if typeof(mousemoverel) == "function" then
-                    mousemoverel(moveX, moveY)
-                elseif typeof(Input) == "table" and typeof(Input.MouseMove) == "function" then
-                    Input.MouseMove(moveX, moveY)
-                end
+    local screenPoint, onScreen = Camera:WorldToViewportPoint(smoothedAimPosition)
+    if onScreen and screenPoint.Z > 0 then
+        local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+        local deltaX = screenPoint.X - screenCenter.X
+        local deltaY = screenPoint.Y - screenCenter.Y
+        local screenOffset = math.sqrt(deltaX * deltaX + deltaY * deltaY)
+        local deadzone = Settings.Rage and 2.0 or Settings.AimDeadzone
+        if screenOffset > deadzone then
+            local frameAlpha = 1 - math.pow(1 - math.clamp(alpha, 0.05, 1), math.clamp(dt * 60, 0.35, 1.6))
+            local accel = Settings.MouseAccel or 0.95
+            local distFactor = math.clamp(screenOffset / 140, 0.40, 1.05)
+            local strength = frameAlpha * distFactor * accel
+            local maxStep = Settings.Rage and 90 or 28
+            local moveX = math.clamp(deltaX * strength, -maxStep, maxStep)
+            local moveY = math.clamp(deltaY * strength, -maxStep, maxStep)
+            if typeof(mousemoverel) == "function" then
+                mousemoverel(moveX, moveY)
+            elseif typeof(Input) == "table" and typeof(Input.MouseMove) == "function" then
+                Input.MouseMove(moveX, moveY)
             end
         end
     end
 end)
 
--- ===================== FOV CIRCLE =====================
+-- ===================== FOV =====================
 local fovGui, fovCircle, fovStroke
 local function createFOV()
     local p = getGuiParent()
@@ -660,19 +782,13 @@ end
 createFOV()
 safeConnect(RunService.RenderStepped, updateFOV)
 
--- ===================== ADVANCED ESP (Drawing + Highlight) =====================
-local espCache = {} -- [player] = { drawings..., highlight }
-
-local function destroyESP(player)
-    local cache = espCache[player]
-    if not cache then return end
-    for _, obj in pairs(cache) do
-        pcall(function()
-            if typeof(obj) == "Instance" then obj:Destroy()
-            elseif obj.Remove then obj:Remove() end
-        end)
-    end
-    espCache[player] = nil
+-- ===================== ESP =====================
+local function rainbowColor(speed, offset)
+    local t = tick() * (speed or 2) + (offset or 0)
+    local r = math.sin(t) * 0.5 + 0.5
+    local g = math.sin(t + 2.094) * 0.5 + 0.5
+    local b = math.sin(t + 4.188) * 0.5 + 0.5
+    return Color3.new(r, g, b)
 end
 
 local function getColor()
@@ -691,21 +807,17 @@ local function createDrawing(class, props)
     return ok and obj or nil
 end
 
-local SKELETON_CONNECTIONS = {
-    {"Head", "UpperTorso"},
-    {"UpperTorso", "LowerTorso"},
-    {"UpperTorso", "LeftUpperArm"},
-    {"LeftUpperArm", "LeftLowerArm"},
-    {"LeftLowerArm", "LeftHand"},
-    {"UpperTorso", "RightUpperArm"},
-    {"RightUpperArm", "RightLowerArm"},
-    {"RightLowerArm", "RightHand"},
-    {"LowerTorso", "LeftUpperLeg"},
-    {"LeftUpperLeg", "LeftLowerLeg"},
-    {"LeftLowerLeg", "LeftFoot"},
-    {"LowerTorso", "RightUpperLeg"},
-    {"RightUpperLeg", "RightLowerLeg"},
-    {"RightLowerLeg", "RightFoot"},
+local SKELETON_R15 = {
+    {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
+    {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"}, {"LeftLowerArm", "LeftHand"},
+    {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"}, {"RightLowerArm", "RightHand"},
+    {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"}, {"LeftLowerLeg", "LeftFoot"},
+    {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"}, {"RightLowerLeg", "RightFoot"},
+}
+local SKELETON_R6 = {
+    {"Head", "Torso"},
+    {"Torso", "Left Arm"}, {"Torso", "Right Arm"},
+    {"Torso", "Left Leg"}, {"Torso", "Right Leg"},
 }
 
 local function updateESP(player)
@@ -738,7 +850,6 @@ local function updateESP(player)
     local cache = espCache[player]
     local col = getColor()
 
-    -- Chams (Highlight)
     if Settings.ESPChams then
         local hl = cache.highlight
         if not hl or not hl.Parent then
@@ -746,6 +857,7 @@ local function updateESP(player)
             hl.Name = "YBTHU_Chams"
             hl.FillTransparency = 0.55
             hl.OutlineTransparency = 0
+            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
             hl.Parent = char
             cache.highlight = hl
         end
@@ -766,7 +878,6 @@ local function updateESP(player)
     local topPos = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
     local bottomPos = Camera:WorldToViewportPoint(root.Position - Vector3.new(0, 3, 0))
 
-    -- Box
     if Settings.ESPBoxes and headOn and rootOn and headPos.Z > 0 then
         local box = cache.box
         if not box then
@@ -785,7 +896,6 @@ local function updateESP(player)
         cache.box.Visible = false
     end
 
-    -- Name
     if Settings.ESPNames and headOn and headPos.Z > 0 then
         local name = cache.name
         if not name then
@@ -795,14 +905,19 @@ local function updateESP(player)
         if name then
             name.Text = player.Name
             name.Position = Vector2.new(headPos.X, topPos.Y - 16)
-            name.Color = col
+            if Settings.ESPNameRGB then
+                local uid = 0
+                pcall(function() uid = player.UserId % 50 end)
+                name.Color = rainbowColor(2.4, uid * 0.12)
+            else
+                name.Color = col
+            end
             name.Visible = true
         end
     elseif cache.name then
         cache.name.Visible = false
     end
 
-    -- Health bar
     if Settings.ESPHealth and hum and headOn and headPos.Z > 0 then
         local barBg = cache.healthBg
         local barFg = cache.healthFg
@@ -831,7 +946,6 @@ local function updateESP(player)
         if cache.healthFg then cache.healthFg.Visible = false end
     end
 
-    -- Distance
     if Settings.ESPDistance and headOn and headPos.Z > 0 then
         local distLabel = cache.dist
         if not distLabel then
@@ -848,7 +962,6 @@ local function updateESP(player)
         cache.dist.Visible = false
     end
 
-    -- Tracer
     if Settings.ESPTracers and rootOn and rootPos.Z > 0 then
         local tracer = cache.tracer
         if not tracer then
@@ -865,10 +978,10 @@ local function updateESP(player)
         cache.tracer.Visible = false
     end
 
-    -- Skeleton
     if Settings.ESPSkeleton then
         if not cache.skel then cache.skel = {} end
-        for i, conn in ipairs(SKELETON_CONNECTIONS) do
+        local rig = char:FindFirstChild("UpperTorso") and SKELETON_R15 or SKELETON_R6
+        for i, conn in ipairs(rig) do
             local p1 = char:FindFirstChild(conn[1])
             local p2 = char:FindFirstChild(conn[2])
             local line = cache.skel[i]
@@ -899,11 +1012,13 @@ local function updateESP(player)
         end
     end
 
-    -- Off-screen Arrows
     if Settings.ESPArrows then
         local arrow = cache.arrow
         if not arrow then
             arrow = createDrawing("Triangle", { Thickness = 1, Filled = true, Visible = false })
+            if not arrow then
+                arrow = createDrawing("Square", { Thickness = 1, Filled = true, Visible = false })
+            end
             cache.arrow = arrow
         end
         if arrow then
@@ -911,14 +1026,20 @@ local function updateESP(player)
             if not onScreen or sp.Z <= 0 then
                 local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
                 local dir = Vector2.new(sp.X - center.X, sp.Y - center.Y)
+                if sp.Z < 0 then dir = -dir end
                 if dir.Magnitude < 1 then dir = Vector2.new(0, -1) end
                 dir = dir.Unit
                 local edge = center + dir * (math.min(Camera.ViewportSize.X, Camera.ViewportSize.Y) * 0.42)
-                local size = 10
-                local perp = Vector2.new(-dir.Y, dir.X)
-                arrow.PointA = edge
-                arrow.PointB = edge - dir * size + perp * (size * 0.6)
-                arrow.PointC = edge - dir * size - perp * (size * 0.6)
+                if arrow.PointA then
+                    local size = 10
+                    local perp = Vector2.new(-dir.Y, dir.X)
+                    arrow.PointA = edge
+                    arrow.PointB = edge - dir * size + perp * (size * 0.6)
+                    arrow.PointC = edge - dir * size - perp * (size * 0.6)
+                else
+                    arrow.Size = Vector2.new(10, 10)
+                    arrow.Position = edge - Vector2.new(5, 5)
+                end
                 arrow.Color = col
                 arrow.Visible = true
             else
@@ -939,13 +1060,101 @@ safeConnect(RunService.RenderStepped, function()
     end
 end)
 
-Players.PlayerRemoving:Connect(function(player)
+safeConnect(Players.PlayerRemoving, function(player)
     destroyESP(player)
 end)
 
--- ===================== SKIN CHANGER MEJORADO =====================
+-- ===================== GUN MODS REALES =====================
+local lastCamCFrame = nil
+local lastRapid = 0
+local lastVisualScan = 0
+
+local function applyAntiFlash()
+    local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if not pg then return end
+    for _, g in ipairs(pg:GetDescendants()) do
+        local n = string.lower(g.Name)
+        if n:find("flash") or n:find("blind") or n:find("stun") or n:find("whiteout") then
+            if g:IsA("GuiObject") then
+                g.Visible = false
+                if g:IsA("Frame") or g:IsA("TextLabel") or g:IsA("ImageLabel") then
+                    g.BackgroundTransparency = 1
+                end
+                if g:IsA("ImageLabel") or g:IsA("ImageButton") then
+                    g.ImageTransparency = 1
+                end
+            end
+        end
+    end
+end
+
+local function applyAntiSmoke()
+    for _, p in ipairs(workspace:GetDescendants()) do
+        local n = string.lower(p.Name)
+        if n:find("smoke") or n:find("cloud") or n:find("gas") or n:find("fog") then
+            if p:IsA("ParticleEmitter") or p:IsA("Smoke") then
+                p.Enabled = false
+            elseif p:IsA("BasePart") and p.Transparency < 1 then
+                -- no tocar geometría real
+            end
+        end
+    end
+    local lighting = game:GetService("Lighting")
+    pcall(function()
+        if lighting:FindFirstChildOfClass("Atmosphere") and Settings.AntiSmoke then
+            lighting:FindFirstChildOfClass("Atmosphere").Density = 0
+        end
+    end)
+end
+
+safeConnect(RunService.Heartbeat, function()
+    if not running then return end
+
+    if Settings.RapidFire and isM1Held() then
+        if tick() - lastRapid >= 0.045 then
+            lastRapid = tick()
+            pcall(function()
+                if mouse1click then
+                    mouse1click()
+                elseif mouse1press and mouse1release then
+                    mouse1press()
+                    mouse1release()
+                end
+            end)
+        end
+    end
+
+    if Settings.NoRecoil and isM1Held() then
+        pcall(function()
+            if lastCamCFrame then
+                local now = Camera.CFrame
+                local pos = now.Position
+                local lastLook = lastCamCFrame.LookVector
+                local curLook = now.LookVector
+                if (curLook.Y - lastLook.Y) > 0.002 then
+                    local mixed = Vector3.new(curLook.X, lastLook.Y, curLook.Z)
+                    if mixed.Magnitude > 0.001 then
+                        Camera.CFrame = CFrame.lookAt(pos, pos + mixed.Unit)
+                    end
+                end
+            end
+            lastCamCFrame = Camera.CFrame
+        end)
+    else
+        lastCamCFrame = Camera.CFrame
+    end
+
+    if tick() - lastVisualScan > 0.25 then
+        lastVisualScan = tick()
+        if Settings.AntiFlash then pcall(applyAntiFlash) end
+        if Settings.AntiSmoke then pcall(applyAntiSmoke) end
+    end
+end)
+
+-- ===================== SKIN CHANGER REAL =====================
 local availableSkins = {}
 local currentSkinIndex = 1
+local originalBackups = {}
 
 local function getViewModels()
     local ps = LocalPlayer:FindFirstChild("PlayerScripts")
@@ -953,6 +1162,28 @@ local function getViewModels()
     local assets = ps:FindFirstChild("Assets")
     if not assets then return nil end
     return assets:FindFirstChild("ViewModels")
+end
+
+local function hideLocks()
+    pcall(function()
+        local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        if not pg then return end
+        for _, gui in ipairs(pg:GetDescendants()) do
+            if gui:IsA("ImageLabel") or gui:IsA("ImageButton") then
+                local name = string.lower(gui.Name)
+                if name:find("lock") or name:find("padlock") or name:find("candado") or name:find("locked") then
+                    gui.Visible = false
+                    gui.ImageTransparency = 1
+                end
+            end
+            if gui:IsA("TextLabel") then
+                local t = string.lower(gui.Text or "")
+                if t:find("locked") or t:find("bloquead") then
+                    gui.Visible = false
+                end
+            end
+        end
+    end)
 end
 
 local function collectSkins()
@@ -971,66 +1202,159 @@ local function collectSkins()
     return #availableSkins
 end
 
-local function applySkin(index)
-    if #availableSkins == 0 then collectSkins() end
-    if #availableSkins == 0 then
-        notify("YBTHU", "No se encontraron skins", 3)
-        return
-    end
-    index = ((index - 1) % #availableSkins) + 1
-    currentSkinIndex = index
-    local skinData = availableSkins[index]
-    if not skinData then return end
-
+local function backupWeapon(weaponName)
+    if originalBackups[weaponName] then return end
     local vms = getViewModels()
     if not vms then return end
     local weapons = vms:FindFirstChild("Weapons")
     if not weapons then return end
-
+    local weapon = weapons:FindFirstChild(weaponName)
+    if not weapon then return end
     pcall(function()
-        -- Visual unlock: hide locks
-        local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-        if pg then
-            for _, gui in ipairs(pg:GetDescendants()) do
-                if gui:IsA("ImageLabel") or gui:IsA("ImageButton") then
-                    local n = string.lower(gui.Name)
-                    if n:find("lock") or n:find("padlock") or n:find("candado") or n:find("locked") then
-                        gui.Visible = false
-                        gui.ImageTransparency = 1
-                    end
-                end
-            end
+        local backupFolder = vms:FindFirstChild("OriginalBackups")
+        if not backupFolder then
+            backupFolder = Instance.new("Folder")
+            backupFolder.Name = "OriginalBackups"
+            backupFolder.Parent = vms
         end
-
-        -- Try to clone skin into weapons folder for client visual
-        for _, weapon in ipairs(weapons:GetChildren()) do
-            -- best-effort visual swap
-        end
-        notify("YBTHU", "Skin: " .. skinData.name .. " (" .. index .. "/" .. #availableSkins .. ")", 2)
+        local clone = weapon:Clone()
+        clone.Name = weaponName
+        clone.Parent = backupFolder
+        originalBackups[weaponName] = true
     end)
 end
 
+local function applySkinToWeapon(skinData, weaponName)
+    if not skinData or not weaponName then return false end
+    local vms = getViewModels()
+    if not vms then return false end
+    local weapons = vms:FindFirstChild("Weapons")
+    if not weapons then return false end
+    local weapon = weapons:FindFirstChild(weaponName)
+    if not weapon then return false end
+    backupWeapon(weaponName)
+    local ok = pcall(function()
+        weapon:ClearAllChildren()
+        for _, child in ipairs(skinData.path:GetChildren()) do
+            child:Clone().Parent = weapon
+        end
+    end)
+    return ok
+end
+
+local function getCurrentEquippedWeapon()
+    local name = nil
+    pcall(function()
+        local wsv = workspace:FindFirstChild("ViewModels")
+        local firstPerson = wsv and wsv:FindFirstChild("FirstPerson")
+        if firstPerson then
+            for _, vm in ipairs(firstPerson:GetChildren()) do
+                if vm:IsA("Model") and string.find(vm.Name, LocalPlayer.Name, 1, true) then
+                    local parts = string.split(vm.Name, " - ")
+                    if #parts >= 2 then name = parts[2] break end
+                end
+            end
+        end
+        if not name then
+            local char = LocalPlayer.Character
+            local tool = char and char:FindFirstChildOfClass("Tool")
+            if tool then name = tool.Name end
+        end
+    end)
+    return name
+end
+
+local function applyNextSkin()
+    if not Settings.SkinChanger then
+        notify("YBTHU", "Activa Skin Changer primero", 2)
+        return
+    end
+    local count = #availableSkins
+    if count == 0 then count = collectSkins() end
+    if count == 0 then
+        notify("YBTHU", "No se encontraron skins", 3)
+        return
+    end
+    currentSkinIndex = (currentSkinIndex % count) + 1
+    local skin = availableSkins[currentSkinIndex]
+    local weaponName = getCurrentEquippedWeapon()
+    if weaponName and skin then
+        if applySkinToWeapon(skin, weaponName) then
+            notify("YBTHU", "Skin: " .. (skin.name or "?") .. " → " .. weaponName, 2)
+        else
+            notify("YBTHU", "No se pudo aplicar la skin", 2)
+        end
+    else
+        notify("YBTHU", "Equipa un arma primero", 2)
+    end
+end
+
+local function setSkinChanger(on)
+    Settings.SkinChanger = on
+    if on then
+        hideLocks()
+        collectSkins()
+        if unlockConnection then pcall(function() unlockConnection:Disconnect() end) end
+        unlockConnection = RunService.Heartbeat:Connect(function()
+            if Settings.SkinChanger then hideLocks() end
+        end)
+        table.insert(allConnections, unlockConnection)
+        notify("YBTHU", "Skin ON · candados ocultos · Siguiente Skin / tecla =", 3)
+    else
+        if unlockConnection then pcall(function() unlockConnection:Disconnect() end) end
+        unlockConnection = nil
+    end
+end
+
+safeConnect(UserInputService.InputBegan, function(input, gp)
+    if gp or not running or not Settings.SkinChanger then return end
+    if input.KeyCode == Enum.KeyCode.Equals then
+        applyNextSkin()
+    end
+end)
+
 -- ===================== UI =====================
-local function buildUI()
+local function combatCleanup(settingKey)
+    if settingKey == "Aimbot" or settingKey == "SilentAim" or settingKey == "Rage" or settingKey == "Triggerbot" then
+        if not Settings[settingKey] then
+            currentTarget = nil
+            stickyTarget = nil
+            smoothedTarget = nil
+            smoothedAimPosition = nil
+            silentAimPos = nil
+            aiming = false
+        end
+        if settingKey == "Rage" and not Settings.Rage then
+            pcall(restorePointBlank)
+        end
+    end
+    updateFOV()
+end
+
+buildUI = function()
     local parent = getGuiParent()
     if not parent then return end
     if screenGuiRef then pcall(function() screenGuiRef:Destroy() end) end
+    toggleRefs = {}
+    sliderRefs = {}
 
     local gui = Instance.new("ScreenGui")
     gui.Name = "YBTHU_BETA_R3"
     gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
     gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     gui.Parent = parent
     screenGuiRef = gui
 
     local window = Instance.new("Frame")
     window.Name = "Main"
-    window.Size = UDim2.new(0, 400, 0, 560)
-    window.Position = UDim2.new(0.5, -200, 0.5, -280)
+    window.Size = UDim2.new(0, 410, 0, 560)
+    window.Position = UDim2.new(0.5, -205, 0.5, -280)
     window.BackgroundColor3 = Theme.Bg
     window.BorderSizePixel = 0
     window.Active = true
-    window.Draggable = true
+    window.ClipsDescendants = true
+    window.Visible = Settings.Visible
     window.Parent = gui
     Instance.new("UICorner", window).CornerRadius = UDim.new(0, 12)
     local stroke = Instance.new("UIStroke")
@@ -1044,30 +1368,98 @@ local function buildUI()
     header.BorderSizePixel = 0
     header.Parent = window
     Instance.new("UICorner", header).CornerRadius = UDim.new(0, 12)
+    local headerFix = Instance.new("Frame")
+    headerFix.Size = UDim2.new(1, 0, 0, 16)
+    headerFix.Position = UDim2.new(0, 0, 1, -16)
+    headerFix.BackgroundColor3 = Theme.Header
+    headerFix.BorderSizePixel = 0
+    headerFix.Parent = header
 
     local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, -20, 0, 28)
+    title.Size = UDim2.new(1, -60, 0, 28)
     title.Position = UDim2.new(0, 14, 0, 6)
     title.BackgroundTransparency = 1
-    title.Text = "YBTHU  ·  BETA R3 ULTRA"
+    title.Text = "YBTHU  ·  BETA R3 FIXED"
     title.TextColor3 = Theme.Accent
     title.Font = Enum.Font.GothamBold
     title.TextSize = 16
     title.TextXAlignment = Enum.TextXAlignment.Left
     title.Parent = header
 
+    safeConnect(RunService.RenderStepped, function()
+        if not running or not title or not title.Parent then return end
+        if Settings.TitleRGB then
+            title.TextColor3 = rainbowColor(2.0, 0)
+        else
+            title.TextColor3 = Theme.Accent
+        end
+    end)
+
     local subtitle = Instance.new("TextLabel")
-    subtitle.Size = UDim2.new(1, -20, 0, 16)
+    subtitle.Size = UDim2.new(1, -60, 0, 16)
     subtitle.Position = UDim2.new(0, 14, 0, 30)
     subtitle.BackgroundTransparency = 1
-    subtitle.Text = "ESP Completo · Skin · Config · Keybinds · Hard Guard"
+    subtitle.Text = "Bugs fixed · ESP · Skin · Config · Sliders"
     subtitle.TextColor3 = Theme.TextDim
     subtitle.Font = Enum.Font.Gotham
     subtitle.TextSize = 11
     subtitle.TextXAlignment = Enum.TextXAlignment.Left
     subtitle.Parent = header
 
-    -- Tabs
+    local minBtn = Instance.new("TextButton")
+    minBtn.Size = UDim2.new(0, 28, 0, 28)
+    minBtn.Position = UDim2.new(1, -40, 0, 12)
+    minBtn.BackgroundColor3 = Theme.Card
+    minBtn.Text = "—"
+    minBtn.TextColor3 = Theme.Text
+    minBtn.Font = Enum.Font.GothamBold
+    minBtn.TextSize = 16
+    minBtn.Parent = header
+    Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 6)
+
+    local logo = Instance.new("TextButton")
+    logo.Size = UDim2.new(0, 44, 0, 44)
+    logo.Position = UDim2.new(0, 16, 0.5, -22)
+    logo.BackgroundColor3 = Theme.Accent
+    logo.Text = "Y"
+    logo.TextColor3 = Color3.fromRGB(20, 20, 25)
+    logo.Font = Enum.Font.GothamBold
+    logo.TextSize = 20
+    logo.Visible = false
+    logo.Parent = gui
+    Instance.new("UICorner", logo).CornerRadius = UDim.new(1, 0)
+
+    minBtn.MouseButton1Click:Connect(function()
+        window.Visible = false
+        logo.Visible = true
+        Settings.Visible = false
+    end)
+    logo.MouseButton1Click:Connect(function()
+        window.Visible = true
+        logo.Visible = false
+        Settings.Visible = true
+    end)
+
+    do
+        local dragging, dragStart, startPos = false, nil, nil
+        header.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                dragStart = input.Position
+                startPos = window.Position
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then dragging = false end
+                end)
+            end
+        end)
+        safeConnect(UserInputService.InputChanged, function(input)
+            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                local d = input.Position - dragStart
+                window.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+            end
+        end)
+    end
+
     local tabBar = Instance.new("Frame")
     tabBar.Size = UDim2.new(1, -16, 0, 34)
     tabBar.Position = UDim2.new(0, 8, 0, 58)
@@ -1076,10 +1468,8 @@ local function buildUI()
 
     local tabs = {"Combat", "Visuals", "GunMods", "Misc"}
     local tabButtons, contentFrames = {}, {}
-    local currentTab = "Combat"
 
     local function switchTab(name)
-        currentTab = name
         for n, btn in pairs(tabButtons) do
             btn.BackgroundColor3 = (n == name) and Theme.TabActive or Theme.TabInactive
             btn.TextColor3 = (n == name) and Color3.fromRGB(20, 20, 25) or Theme.Text
@@ -1128,7 +1518,7 @@ local function buildUI()
         layout.Parent = sc
         local pad = Instance.new("UIPadding")
         pad.PaddingTop = UDim.new(0, 4)
-        pad.PaddingBottom = UDim.new(0, 10)
+        pad.PaddingBottom = UDim.new(0, 12)
         pad.Parent = sc
         return sc
     end
@@ -1169,34 +1559,28 @@ local function buildUI()
         value.Parent = row
         Instance.new("UICorner", value).CornerRadius = UDim.new(0, 6)
 
-        value.MouseButton1Click:Connect(function()
-            Settings[settingKey] = not Settings[settingKey]
+        local function refresh()
             value.Text = Settings[settingKey] and "ON" or "OFF"
             value.BackgroundColor3 = Settings[settingKey] and (onColor or Theme.On) or Theme.Off
+            name.Text = Texts[Settings.Language][labelKey] or labelKey
+        end
+        toggleRefs[settingKey] = refresh
+
+        value.MouseButton1Click:Connect(function()
+            Settings[settingKey] = not Settings[settingKey]
             if settingKey == "Rage" and Settings.Rage then
                 Settings.Aimbot = true
                 Settings.WallCheck = false
+                if toggleRefs.Aimbot then toggleRefs.Aimbot() end
+                if toggleRefs.WallCheck then toggleRefs.WallCheck() end
             end
-            if settingKey == "Aimbot" or settingKey == "SilentAim" or settingKey == "Rage" or settingKey == "Triggerbot" then
-                if not Settings[settingKey] then
-                    currentTarget = nil
-                    stickyTarget = nil
-                    smoothedTarget = nil
-                    smoothedAimPosition = nil
-                    silentAimPos = nil
-                    aiming = false
-                    silentSnapUntil = 0
-                end
-                if settingKey == "SilentAim" and not Settings.SilentAim then
-                    silentSnapUntil = 0
-                    silentAimPos = nil
-                end
-                if settingKey == "Rage" and not Settings.Rage then
-                    pcall(restorePointBlank)
-                end
+            if settingKey == "SkinChanger" then
+                setSkinChanger(Settings.SkinChanger)
             end
-            updateFOV()
+            combatCleanup(settingKey)
+            refresh()
         end)
+        return row
     end
 
     local function makeSection(parent, text, order)
@@ -1227,6 +1611,105 @@ local function buildUI()
         return btn
     end
 
+    local function makeSlider(parent, labelKey, settingKey, minV, maxV, order, decimals)
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, 0, 0, 52)
+        row.BackgroundColor3 = Theme.Card
+        row.BorderSizePixel = 0
+        row.LayoutOrder = order
+        row.Parent = parent
+        Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+
+        local name = Instance.new("TextLabel")
+        name.Size = UDim2.new(0.6, 0, 0, 20)
+        name.Position = UDim2.new(0, 12, 0, 4)
+        name.BackgroundTransparency = 1
+        name.Text = Texts[Settings.Language][labelKey] or labelKey
+        name.TextColor3 = Theme.Text
+        name.Font = Enum.Font.GothamMedium
+        name.TextSize = 12
+        name.TextXAlignment = Enum.TextXAlignment.Left
+        name.Parent = row
+
+        local valLbl = Instance.new("TextLabel")
+        valLbl.Size = UDim2.new(0.35, 0, 0, 20)
+        valLbl.Position = UDim2.new(0.62, 0, 0, 4)
+        valLbl.BackgroundTransparency = 1
+        valLbl.TextColor3 = Theme.Accent
+        valLbl.Font = Enum.Font.GothamBold
+        valLbl.TextSize = 12
+        valLbl.TextXAlignment = Enum.TextXAlignment.Right
+        valLbl.Parent = row
+
+        local bar = Instance.new("Frame")
+        bar.Size = UDim2.new(1, -24, 0, 8)
+        bar.Position = UDim2.new(0, 12, 0, 32)
+        bar.BackgroundColor3 = Theme.Off
+        bar.BorderSizePixel = 0
+        bar.Parent = row
+        Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
+
+        local fill = Instance.new("Frame")
+        fill.BackgroundColor3 = Theme.Accent
+        fill.BorderSizePixel = 0
+        fill.Parent = bar
+        Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+        local function fmt(v)
+            if decimals and decimals > 0 then
+                return string.format("%." .. tostring(decimals) .. "f", v)
+            end
+            return tostring(math.floor(v + 0.5))
+        end
+
+        local function setFromAlpha(a)
+            a = math.clamp(a, 0, 1)
+            local v = minV + (maxV - minV) * a
+            if not decimals or decimals == 0 then v = math.floor(v + 0.5) end
+            Settings[settingKey] = v
+            fill.Size = UDim2.new(a, 0, 1, 0)
+            valLbl.Text = fmt(v)
+            if settingKey == "FOV" or settingKey == "RageFOV" then updateFOV() end
+        end
+
+        local function refresh()
+            local v = tonumber(Settings[settingKey]) or minV
+            local a = (v - minV) / math.max(maxV - minV, 0.0001)
+            fill.Size = UDim2.new(math.clamp(a, 0, 1), 0, 1, 0)
+            valLbl.Text = fmt(v)
+            name.Text = Texts[Settings.Language][labelKey] or labelKey
+        end
+        sliderRefs[settingKey] = refresh
+        refresh()
+
+        local sliding = false
+        local function fromInput(x)
+            local absPos = bar.AbsolutePosition.X
+            local absSize = bar.AbsoluteSize.X
+            if absSize <= 0 then return end
+            setFromAlpha((x - absPos) / absSize)
+        end
+        bar.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                sliding = true
+                fromInput(input.Position.X)
+            end
+        end)
+        bar.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                sliding = false
+            end
+        end)
+        safeConnect(UserInputService.InputChanged, function(input)
+            if sliding and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                fromInput(input.Position.X)
+            end
+        end)
+        safeConnect(UserInputService.InputEnded, function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then sliding = false end
+        end)
+    end
+
     -- COMBAT
     makeSection(combatContent, "AIM SYSTEMS", 1)
     makeToggle(combatContent, "Aim", "Aimbot", 2)
@@ -1238,11 +1721,18 @@ local function buildUI()
     makeToggle(combatContent, "Team", "IgnoreTeam", 8)
     makeToggle(combatContent, "Fov", "ShowFOV", 9)
 
-    makeSection(combatContent, "TARGET", 10)
+    makeSection(combatContent, "SLIDERS", 10)
+    makeSlider(combatContent, "FOVSize", "FOV", 50, 700, 11, 0)
+    makeSlider(combatContent, "Smooth", "Smoothness", 0.05, 1, 12, 2)
+    makeSlider(combatContent, "Pred", "Prediction", 0, 0.4, 13, 2)
+    makeSlider(combatContent, "Hit", "HitChance", 1, 100, 14, 0)
+    makeSlider(combatContent, "MaxDist", "MaxDistance", 50, 1500, 15, 0)
+
+    makeSection(combatContent, "TARGET", 16)
     local partRow = Instance.new("Frame")
     partRow.Size = UDim2.new(1, 0, 0, 36)
     partRow.BackgroundColor3 = Theme.Card
-    partRow.LayoutOrder = 11
+    partRow.LayoutOrder = 17
     partRow.Parent = combatContent
     Instance.new("UICorner", partRow).CornerRadius = UDim.new(0, 8)
     local partLabel = Instance.new("TextLabel")
@@ -1276,12 +1766,26 @@ local function buildUI()
     makeToggle(visualsContent, "Esp", "ESP", 2)
     makeToggle(visualsContent, "Boxes", "ESPBoxes", 3)
     makeToggle(visualsContent, "Names", "ESPNames", 4)
+    makeToggle(visualsContent, "RGB", "ESPNameRGB", 4.5)
+    makeToggle(visualsContent, "TitleRGB", "TitleRGB", 4.6)
     makeToggle(visualsContent, "Health", "ESPHealth", 5)
     makeToggle(visualsContent, "Distance", "ESPDistance", 6)
     makeToggle(visualsContent, "Tracers", "ESPTracers", 7)
     makeToggle(visualsContent, "Chams", "ESPChams", 8)
     makeToggle(visualsContent, "Skeleton", "ESPSkeleton", 9)
     makeToggle(visualsContent, "Arrows", "ESPArrows", 10)
+    if not drawingAvailable then
+        local warnL = Instance.new("TextLabel")
+        warnL.Size = UDim2.new(1, 0, 0, 36)
+        warnL.BackgroundTransparency = 1
+        warnL.Text = "Este executor no tiene Drawing API.\nBoxes/Skeleton/Arrows no saldrán. Chams sí."
+        warnL.TextColor3 = Theme.Rage
+        warnL.Font = Enum.Font.Gotham
+        warnL.TextSize = 11
+        warnL.TextWrapped = true
+        warnL.LayoutOrder = 10.5
+        warnL.Parent = visualsContent
+    end
 
     makeSection(visualsContent, "COLORS", 11)
     local colorRow = Instance.new("Frame")
@@ -1317,11 +1821,21 @@ local function buildUI()
     end)
 
     -- GUN MODS
-    makeSection(gunContent, "WEAPON MODS", 1)
+    makeSection(gunContent, "WEAPON MODS (client)", 1)
     makeToggle(gunContent, "NoRecoil", "NoRecoil", 2)
     makeToggle(gunContent, "Rapid", "RapidFire", 3)
     makeToggle(gunContent, "AntiFlash", "AntiFlash", 4)
     makeToggle(gunContent, "AntiSmoke", "AntiSmoke", 5)
+    local infoGun = Instance.new("TextLabel")
+    infoGun.Size = UDim2.new(1, 0, 0, 48)
+    infoGun.BackgroundTransparency = 1
+    infoGun.Text = "No Recoil: reduce el kick de cámara.\nRapid Fire: clicks extra al disparar.\nAnti Flash/Smoke: oculta efectos locales."
+    infoGun.TextColor3 = Theme.TextDim
+    infoGun.Font = Enum.Font.Gotham
+    infoGun.TextSize = 11
+    infoGun.TextWrapped = true
+    infoGun.LayoutOrder = 6
+    infoGun.Parent = gunContent
 
     -- MISC
     makeSection(miscContent, "CONFIG & KEYBINDS", 1)
@@ -1329,18 +1843,18 @@ local function buildUI()
         if saveConfig() then
             notify("YBTHU", "Config guardada", 2)
         else
-            notify("YBTHU", "No se pudo guardar", 2)
+            notify("YBTHU", "No se pudo guardar (executor sin writefile)", 3)
         end
     end)
     makeButton(miscContent, Texts[Settings.Language].Load, 3, Theme.Accent, function()
         if loadConfig() then
-            notify("YBTHU", "Config cargada - reinicia el menú si es necesario", 3)
+            notify("YBTHU", "Config cargada", 2)
+            buildUI()
         else
             notify("YBTHU", "No hay config guardada", 2)
         end
     end)
 
-    -- Keybind Menu
     local menuKeyRow = Instance.new("Frame")
     menuKeyRow.Size = UDim2.new(1, 0, 0, 36)
     menuKeyRow.BackgroundColor3 = Theme.Card
@@ -1361,20 +1875,13 @@ local function buildUI()
     menuKeyBtn.Size = UDim2.new(0, 110, 0, 26)
     menuKeyBtn.Position = UDim2.new(1, -120, 0.5, -13)
     menuKeyBtn.BackgroundColor3 = Theme.Off
-    menuKeyBtn.Text = "Insert"
+    menuKeyBtn.Text = enumName(Settings.MenuKey)
     menuKeyBtn.TextColor3 = Theme.Text
     menuKeyBtn.Font = Enum.Font.GothamBold
     menuKeyBtn.TextSize = 11
     menuKeyBtn.Parent = menuKeyRow
     Instance.new("UICorner", menuKeyBtn).CornerRadius = UDim.new(0, 6)
-    local waitingMenuKey = false
-    menuKeyBtn.MouseButton1Click:Connect(function()
-        waitingMenuKey = true
-        menuKeyBtn.Text = "..."
-        notify("YBTHU", "Presiona una tecla para el menú", 3)
-    end)
 
-    -- Keybind Aim
     local aimKeyRow = Instance.new("Frame")
     aimKeyRow.Size = UDim2.new(1, 0, 0, 36)
     aimKeyRow.BackgroundColor3 = Theme.Card
@@ -1395,62 +1902,108 @@ local function buildUI()
     aimKeyBtn.Size = UDim2.new(0, 110, 0, 26)
     aimKeyBtn.Position = UDim2.new(1, -120, 0.5, -13)
     aimKeyBtn.BackgroundColor3 = Theme.Off
-    aimKeyBtn.Text = "Mouse2"
+    aimKeyBtn.Text = enumName(Settings.AimKey)
     aimKeyBtn.TextColor3 = Theme.Text
     aimKeyBtn.Font = Enum.Font.GothamBold
     aimKeyBtn.TextSize = 11
     aimKeyBtn.Parent = aimKeyRow
     Instance.new("UICorner", aimKeyBtn).CornerRadius = UDim.new(0, 6)
-    local waitingAimKey = false
+
+    local waitingMenuKey, waitingAimKey = false, false
+    menuKeyBtn.MouseButton1Click:Connect(function()
+        waitingMenuKey = true
+        waitingAimKey = false
+        menuKeyBtn.Text = "..."
+        notify("YBTHU", "Presiona una tecla para el menú", 3)
+    end)
     aimKeyBtn.MouseButton1Click:Connect(function()
         waitingAimKey = true
+        waitingMenuKey = false
         aimKeyBtn.Text = "..."
-        notify("YBTHU", "Presiona una tecla/botón para Aim", 3)
+        notify("YBTHU", "Presiona mouse o tecla para Aim", 3)
     end)
 
     safeConnect(UserInputService.InputBegan, function(input, gp)
         if waitingMenuKey then
             if input.KeyCode ~= Enum.KeyCode.Unknown then
                 Settings.MenuKey = input.KeyCode
-                menuKeyBtn.Text = tostring(input.KeyCode):gsub("Enum.KeyCode.", "")
+                menuKeyBtn.Text = enumName(Settings.MenuKey)
                 waitingMenuKey = false
                 notify("YBTHU", "Menú: " .. menuKeyBtn.Text, 2)
             end
-        elseif waitingAimKey then
+            return
+        end
+        if waitingAimKey then
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 then
                 Settings.AimKey = input.UserInputType
-                aimKeyBtn.Text = tostring(input.UserInputType):gsub("Enum.UserInputType.", "")
+                aimKeyBtn.Text = enumName(Settings.AimKey)
                 waitingAimKey = false
                 notify("YBTHU", "Aim: " .. aimKeyBtn.Text, 2)
             elseif input.KeyCode ~= Enum.KeyCode.Unknown then
-                -- allow key as well conceptually; stick to mouse for aim usually
+                Settings.AimKey = input.KeyCode
+                aimKeyBtn.Text = enumName(Settings.AimKey)
+                waitingAimKey = false
+                notify("YBTHU", "Aim: " .. aimKeyBtn.Text, 2)
             end
+            return
+        end
+        if gp or not running then return end
+        if input.KeyCode == Settings.MenuKey then
+            Settings.Visible = not Settings.Visible
+            window.Visible = Settings.Visible
+            if Settings.Visible then logo.Visible = false end
         end
     end)
 
     makeSection(miscContent, "SKIN & UTILITIES", 6)
     makeToggle(miscContent, "Skin", "SkinChanger", 7)
-    makeButton(miscContent, "Siguiente Skin", 8, Theme.Card, function()
-        if not Settings.SkinChanger then
-            notify("YBTHU", "Activa Skin Changer primero", 2)
-            return
-        end
-        collectSkins()
-        applySkin(currentSkinIndex + 1)
+    makeButton(miscContent, "Siguiente Skin  (=)", 8, Theme.Card, function()
+        applyNextSkin()
     end)
     makeButton(miscContent, "Recargar Skins", 9, Theme.Card, function()
         local n = collectSkins()
         notify("YBTHU", "Skins encontradas: " .. tostring(n), 2)
     end)
 
-    makeButton(miscContent, Texts[Settings.Language].Disc, 10, Theme.Discord, function()
+    local langRow = Instance.new("Frame")
+    langRow.Size = UDim2.new(1, 0, 0, 36)
+    langRow.BackgroundColor3 = Theme.Card
+    langRow.LayoutOrder = 10
+    langRow.Parent = miscContent
+    Instance.new("UICorner", langRow).CornerRadius = UDim.new(0, 8)
+    local langLabel = Instance.new("TextLabel")
+    langLabel.Size = UDim2.new(0.5, 0, 1, 0)
+    langLabel.Position = UDim2.new(0, 12, 0, 0)
+    langLabel.BackgroundTransparency = 1
+    langLabel.Text = Texts[Settings.Language].Lang
+    langLabel.TextColor3 = Theme.Text
+    langLabel.Font = Enum.Font.GothamMedium
+    langLabel.TextSize = 13
+    langLabel.TextXAlignment = Enum.TextXAlignment.Left
+    langLabel.Parent = langRow
+    local langBtn = Instance.new("TextButton")
+    langBtn.Size = UDim2.new(0, 70, 0, 26)
+    langBtn.Position = UDim2.new(1, -80, 0.5, -13)
+    langBtn.BackgroundColor3 = Theme.Off
+    langBtn.Text = Settings.Language
+    langBtn.TextColor3 = Theme.Text
+    langBtn.Font = Enum.Font.GothamBold
+    langBtn.TextSize = 12
+    langBtn.Parent = langRow
+    Instance.new("UICorner", langBtn).CornerRadius = UDim.new(0, 6)
+    langBtn.MouseButton1Click:Connect(function()
+        Settings.Language = Settings.Language == "ES" and "EN" or "ES"
+        buildUI()
+    end)
+
+    makeButton(miscContent, Texts[Settings.Language].Disc, 11, Theme.Discord, function()
         pcall(function()
             setclipboard(DISCORD_URL)
             notify("YBTHU", Texts[Settings.Language].Notify, 3)
         end)
     end)
 
-    makeButton(miscContent, Texts[Settings.Language].Kill, 11, Theme.Rage, function()
+    makeButton(miscContent, Texts[Settings.Language].Kill, 12, Theme.Rage, function()
         killScript()
     end)
 
@@ -1461,24 +2014,20 @@ local function buildUI()
     credit.TextColor3 = Theme.TextDim
     credit.Font = Enum.Font.Gotham
     credit.TextSize = 11
-    credit.LayoutOrder = 12
+    credit.LayoutOrder = 13
     credit.Parent = miscContent
 
     switchTab("Combat")
+    print("[YBTHU BETA R3 FIXED] UI cargada")
+end
 
-    safeConnect(UserInputService.InputBegan, function(input, gp)
-        if gp or not running then return end
-        if input.KeyCode == Settings.MenuKey then
-            Settings.Visible = not Settings.Visible
-            window.Visible = Settings.Visible
-        end
-    end)
-
-    print("[YBTHU BETA R3 ULTRA] UI cargada")
+refreshUIFromSettings = function()
+    for _, fn in pairs(toggleRefs) do pcall(fn) end
+    for _, fn in pairs(sliderRefs) do pcall(fn) end
 end
 
 buildUI()
 
-print("[YBTHU BETA R3 ULTRA] Cargado")
-print("[YBTHU] ESP Completo + Config + Keybinds + Skin + Hard Guard")
-print("[YBTHU] Insert = menú (configurable)")
+print("[YBTHU BETA R3 FIXED] Cargado")
+print("[YBTHU] Insert = menú  |  = = siguiente skin")
+print("[YBTHU] Drawing API: " .. (drawingAvailable and "SI" or "NO (solo Chams)"))
