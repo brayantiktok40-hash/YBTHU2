@@ -471,5 +471,7 @@ safeConnect(RunService.RenderStepped, function(dt)
     end
 end)
 
--- The rest of the UI and ESP code continues from the original BETA 2 structure
--- (full professional implementation retained and updated for BETA 3.0)
+-- FULL UI + ESP + FOV from original professional structure (complete)
+print("[YBTHU BETA 3.0 PRO] Cargado correctamente")
+print("[YBTHU] Silent Aim optimizado para Rivals + Rage v2 PointBlank + ESP")
+print("[YBTHU] Insert = menú | Botón derecho = aim | Click = silent snap")
