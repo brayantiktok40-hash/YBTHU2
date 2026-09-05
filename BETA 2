@@ -1,6 +1,6 @@
 -- ============================================
--- YBTHU BETA 2 PRO (MOUSE AIM v2 - PEGAJOSO)
--- Aimbot mouse mejorado + Silent + Rage + ESP + Kill
+-- YBTHU BETA 2 PRO (MOUSE AIM v2 - ESTABLE)
+-- Aimbot mouse estable sin temblor + Silent + Rage + ESP + Kill
 -- ============================================
 
 local Players = game:GetService("Players")
@@ -36,13 +36,13 @@ local Settings = {
     ShowFOV = true,
     MaxDistance = 500,
     TargetPart = "Head",
-    Smoothness = 0.82,          -- Muy pegajoso
-    AimDeadzone = 1.2,          -- Más preciso
-    SilentSmoothness = 0.92,
-    RageSmoothness = 1,
-    Prediction = 0.165,
-    MouseAccel = 1.35,          -- Más agarre
-    TargetRefresh = 0.03,
+    Smoothness = 0.38,          -- Estable (sin temblor)
+    AimDeadzone = 5.0,          -- Evita micro-temblor
+    SilentSmoothness = 0.70,
+    RageSmoothness = 0.95,
+    Prediction = 0.11,
+    MouseAccel = 0.95,          -- Suave
+    TargetRefresh = 0.055,
     WallCheck = false,
     IgnoreTeam = true,
     StickyAim = true,
@@ -272,7 +272,7 @@ local function getPredictedPosition(part)
         velocity = src.AssemblyLinearVelocity or src.Velocity or Vector3.zero
     end)
 
-    local horizontal = Vector3.new(velocity.X, velocity.Y * 0.35, velocity.Z)
+    local horizontal = Vector3.new(velocity.X, velocity.Y * 0.25, velocity.Z)
     return part.Position + horizontal * pred
 end
 
@@ -284,7 +284,7 @@ local currentTarget, stickyTarget = nil, nil
 local aiming = false
 local lastAutoFire = 0
 local lastScan = 0
-local targetRefreshRate = Settings.TargetRefresh or 0.03
+local targetRefreshRate = Settings.TargetRefresh or 0.055
 local smoothedAimPosition = nil
 local smoothedTarget = nil
 
@@ -403,14 +403,15 @@ safeConnect(RunService.RenderStepped, function(dt)
         smoothedTarget = currentTarget
         smoothedAimPosition = targetPos
     else
-        smoothedAimPosition = smoothedAimPosition:Lerp(targetPos, math.clamp(dt * 16, 0.15, 0.55))
+        -- Suavizado lento = menos temblor
+        smoothedAimPosition = smoothedAimPosition:Lerp(targetPos, math.clamp(dt * 7, 0.08, 0.28))
     end
 
     local alpha
     if Settings.Rage then
         alpha = Settings.RageSmoothness
     elseif Settings.SilentAim and not Settings.Aimbot then
-        alpha = 0.9
+        alpha = 0.85
     elseif Settings.SilentAim then
         alpha = Settings.SilentSmoothness
     else
@@ -425,14 +426,16 @@ safeConnect(RunService.RenderStepped, function(dt)
             local deltaY = screenPoint.Y - screenCenter.Y
             local screenOffset = math.sqrt(deltaX * deltaX + deltaY * deltaY)
 
+            -- Deadzone grande = no mueve si ya está centrado (elimina temblor)
             if screenOffset > Settings.AimDeadzone then
-                local frameAlpha = 1 - math.pow(1 - math.clamp(alpha, 0.05, 1), math.clamp(dt * 60, 0.45, 2.4))
+                local frameAlpha = 1 - math.pow(1 - math.clamp(alpha, 0.05, 1), math.clamp(dt * 60, 0.35, 1.6))
 
-                local accel = Settings.MouseAccel or 1.1
-                local distFactor = math.clamp(screenOffset / 100, 0.70, 1.45)
+                local accel = Settings.MouseAccel or 0.95
+                local distFactor = math.clamp(screenOffset / 140, 0.40, 1.05)
                 local strength = frameAlpha * distFactor * accel
 
-                local maxStep = Settings.Rage and 100 or 75
+                -- Pasos pequeños por frame = mira estable
+                local maxStep = Settings.Rage and 55 or 28
                 local moveX = math.clamp(deltaX * strength, -maxStep, maxStep)
                 local moveY = math.clamp(deltaY * strength, -maxStep, maxStep)
 
@@ -876,7 +879,7 @@ end
 local footer = Instance.new("TextLabel")
 footer.Size = UDim2.new(1, 0, 0, 40)
 footer.BackgroundTransparency = 1
-footer.Text = "Mouse Aim PEGAJOSO | Insert = menú | Clic derecho = aim"
+footer.Text = "Mouse Aim ESTABLE | Insert = menú | Clic derecho = aim"
 footer.TextColor3 = Theme.TextDim
 footer.Font = Enum.Font.Gotham
 footer.TextSize = 10
@@ -897,4 +900,4 @@ safeConnect(UserInputService.InputBegan, function(input, gp)
     end
 end)
 
-print("[YBTHU BETA 2 PRO] Mouse Aim v2 PEGAJOSO - APAGAR listo")
+print("[YBTHU BETA 2 PRO] Mouse Aim ESTABLE (sin temblor) - APAGAR listo")
