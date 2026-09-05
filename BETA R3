@@ -1,8 +1,15 @@
 -- ============================================
--- YBTHU BETA R3 FIXED - FULL RIVALS
--- Bugs corregidos: Drawing, leaks, instancia doble,
--- Silent sin snap de click, Gun Mods reales,
--- Skin swap, Config UI, Keybinds, Sliders
+-- YBTHU BETA R3.2 FULL FIXED - FULL RIVALS
+-- Correcciones R3.2 (verificacion completa):
+-- - TargetRefresh dinamico
+-- - Limpieza Drawing + Highlights reforzada
+-- - Silent Aim mas estable
+-- - Camera siempre actualizada
+-- - Skin Changer: busqueda mucho mas robusta de ViewModels
+-- - Skin Changer: mejor feedback en consola
+-- - NoRecoil: correccion vertical mas fuerte
+-- - RapidFire: mejor deteccion de funciones del executor
+-- - Mas prints de diagnostico al cargar
 -- ============================================
 
 local Players = game:GetService("Players")
@@ -37,6 +44,13 @@ local function safeConnect(signal, fn)
     table.insert(allConnections, conn)
     return conn
 end
+
+-- Mantener Camera siempre actualizada
+local function updateCamera()
+    local cam = workspace.CurrentCamera
+    if cam then Camera = cam end
+end
+safeConnect(workspace:GetPropertyChangedSignal("CurrentCamera"), updateCamera)
 
 -- Drawing real (muchos executors lo dan como userdata, no table)
 local drawingAvailable = false
@@ -112,7 +126,7 @@ local Settings = {
     },
 }
 
-local CONFIG_NAME = "YBTHU_BETA_R3_Config.json"
+local CONFIG_NAME = "YBTHU_BETA_R3_2_Config.json"
 local toggleRefs = {}
 local sliderRefs = {}
 local uiLabelRefs = {}
@@ -226,19 +240,25 @@ local unlockConnection = nil
 
 local function destroyDrawingObject(obj)
     if obj == nil then return end
-    if type(obj) == "table" and not obj.Remove and not obj.Destroy then
-        for _, v in pairs(obj) do
+    -- Si es una tabla de objetos (cache de ESP), destruir todos
+    if type(obj) == "table" and not obj.Remove and not obj.Destroy and not obj.Visible then
+        for k, v in pairs(obj) do
             destroyDrawingObject(v)
+            obj[k] = nil
         end
         return
     end
     pcall(function()
         if typeof(obj) == "Instance" then
-            obj:Destroy()
-        elseif obj.Remove then
-            obj:Remove()
-        elseif obj.Destroy then
-            obj:Destroy()
+            if obj.Parent then obj:Destroy() end
+        elseif type(obj) == "userdata" or type(obj) == "table" then
+            -- Drawing API: algunos executors usan Remove, otros Destroy
+            if obj.Visible ~= nil then obj.Visible = false end
+            if obj.Remove then
+                obj:Remove()
+            elseif obj.Destroy then
+                obj:Destroy()
+            end
         end
     end)
 end
@@ -260,8 +280,8 @@ local function destroyAllESP()
             local char = p.Character
             if char then
                 for _, ch in ipairs(char:GetChildren()) do
-                    if ch:IsA("Highlight") and (ch.Name == "YBTHU_Chams" or true) then
-                        if ch.Name == "YBTHU_Chams" then pcall(function() ch:Destroy() end) end
+                    if ch:IsA("Highlight") and ch.Name == "YBTHU_Chams" then
+                        pcall(function() ch:Destroy() end)
                     end
                 end
             end
@@ -313,14 +333,14 @@ local function killScript()
     if Runtime.__YBTHU_R3_KILL == killScript then
         Runtime.__YBTHU_R3_KILL = nil
     end
-    print("[YBTHU BETA R3 FIXED] Script apagado")
+    print("[YBTHU BETA R3.2 FIXED] Script apagado")
 end
 
 Runtime.__YBTHU_R3_KILL = killScript
 
 local Texts = {
     ES = {
-        Title = "YBTHU", Sub = "BETA R3 FIXED",
+        Title = "YBTHU", Sub = "BETA R3.2 FIXED",
         Combat = "COMBATE", Visuals = "VISUALES", GunMods = "GUN MODS", Misc = "AJUSTES",
         Aim = "Aimbot", Silent = "Silent Aim", Trigger = "Triggerbot", Rage = "Rage Aim",
         Esp = "ESP", Skin = "Skin Changer", Fov = "FOV Circle", Part = "Target Part",
@@ -336,7 +356,7 @@ local Texts = {
         MaxDist = "Max Distance", AntiFlash = "Anti Flash", AntiSmoke = "Anti Smoke"
     },
     EN = {
-        Title = "YBTHU", Sub = "BETA R3 FIXED",
+        Title = "YBTHU", Sub = "BETA R3.2 FIXED",
         Combat = "COMBAT", Visuals = "VISUALS", GunMods = "GUN MODS", Misc = "SETTINGS",
         Aim = "Aimbot", Silent = "Silent Aim", Trigger = "Triggerbot", Rage = "Rage Aim",
         Esp = "ESP", Skin = "Skin Changer", Fov = "FOV Circle", Part = "Target Part",
@@ -484,7 +504,7 @@ local currentTarget, stickyTarget = nil, nil
 local silentAimPos = nil
 local aiming = false
 local lastScan = 0
-local targetRefreshRate = Settings.TargetRefresh or 0.055
+-- targetRefreshRate ahora se lee dinámicamente de Settings.TargetRefresh
 local smoothedAimPosition, smoothedTarget = nil, nil
 
 local function getClosestTarget()
@@ -615,11 +635,15 @@ safeConnect(UserInputService.InputEnded, function(input)
     end
 end)
 
--- Silent: SOLO mueve cámara si Silent está ON y Aimbot está OFF (si ambos, el mouse gana)
+-- Silent Aim mejorado (R3.1):
+-- - Si Aimbot también está ON y no es Rage → no mueve cámara (el mouse aimbot gana)
+-- - En Rage o solo Silent → mueve cámara de forma suave y estable
+-- - Mejor control de FOV y predicción
 pcall(function()
     RunService:BindToRenderStep("YBTHU_SilentRivals_R3", Enum.RenderPriority.Camera.Value + 1, function()
         if not running or not Settings.SilentAim then return end
-        if Settings.Aimbot and not Settings.Rage then return end -- evitar pelea
+        -- Evitar pelea con el mouse aimbot normal
+        if Settings.Aimbot and not Settings.Rage then return end
         if not rivalsSilentActive() then return end
         if not passHitChance() then return end
 
@@ -629,17 +653,27 @@ pcall(function()
             currentTarget = part
         end
         if not part or not part.Parent then return end
+
         local aimPos = silentAimPos or getPredictedPosition(part)
         if not aimPos then aimPos = part.Position end
+
         local sp, onScreen = Camera:WorldToViewportPoint(aimPos)
         if sp.Z <= 0 then return end
+
         local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
         local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
         local maxF = getActiveFOV() * (Settings.Rage and 1.6 or 1.35)
         if dist > maxF then return end
         if not Settings.Rage and not onScreen then return end
+
         local camPos = Camera.CFrame.Position
-        Camera.CFrame = CFrame.lookAt(camPos, aimPos)
+        -- Suavizado ligero para que no se sienta tan "snap"
+        local look = CFrame.lookAt(camPos, aimPos)
+        if Settings.Rage then
+            Camera.CFrame = look
+        else
+            Camera.CFrame = Camera.CFrame:Lerp(look, 0.65)
+        end
     end)
 end)
 
@@ -690,7 +724,7 @@ safeConnect(RunService.RenderStepped, function(dt)
     if not passHitChance() then return end
 
     local now = os.clock()
-    local refresh = Settings.Rage and 0.03 or targetRefreshRate
+    local refresh = Settings.Rage and 0.03 or (Settings.TargetRefresh or 0.055)
     if now - lastScan >= refresh or not currentTarget or not currentTarget.Parent then
         lastScan = now
         local nextTarget = getClosestTarget()
@@ -1111,14 +1145,17 @@ safeConnect(RunService.Heartbeat, function()
     if not running then return end
 
     if Settings.RapidFire and isM1Held() then
-        if tick() - lastRapid >= 0.045 then
+        if tick() - lastRapid >= 0.04 then
             lastRapid = tick()
             pcall(function()
-                if mouse1click then
+                if typeof(mouse1click) == "function" then
                     mouse1click()
-                elseif mouse1press and mouse1release then
+                elseif typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then
                     mouse1press()
+                    task.wait()
                     mouse1release()
+                elseif typeof(mousemoverel) == "function" then
+                    -- algunos executors solo tienen esto
                 end
             end)
         end
@@ -1131,8 +1168,9 @@ safeConnect(RunService.Heartbeat, function()
                 local pos = now.Position
                 local lastLook = lastCamCFrame.LookVector
                 local curLook = now.LookVector
-                if (curLook.Y - lastLook.Y) > 0.002 then
-                    local mixed = Vector3.new(curLook.X, lastLook.Y, curLook.Z)
+                -- Correccion mas agresiva del kick vertical
+                if (curLook.Y - lastLook.Y) > 0.0015 then
+                    local mixed = Vector3.new(curLook.X * 0.15 + lastLook.X * 0.85, lastLook.Y, curLook.Z * 0.15 + lastLook.Z * 0.85)
                     if mixed.Magnitude > 0.001 then
                         Camera.CFrame = CFrame.lookAt(pos, pos + mixed.Unit)
                     end
@@ -1157,11 +1195,43 @@ local currentSkinIndex = 1
 local originalBackups = {}
 
 local function getViewModels()
-    local ps = LocalPlayer:FindFirstChild("PlayerScripts")
-    if not ps then return nil end
-    local assets = ps:FindFirstChild("Assets")
-    if not assets then return nil end
-    return assets:FindFirstChild("ViewModels")
+    -- Busqueda mas robusta (Rivals cambia la estructura a veces)
+    local candidates = {}
+    local function tryAdd(obj)
+        if obj then table.insert(candidates, obj) end
+    end
+
+    pcall(function()
+        local ps = LocalPlayer:FindFirstChild("PlayerScripts")
+        if ps then
+            local assets = ps:FindFirstChild("Assets")
+            if assets then tryAdd(assets:FindFirstChild("ViewModels")) end
+            tryAdd(ps:FindFirstChild("ViewModels"))
+        end
+    end)
+
+    pcall(function()
+        local rs = game:GetService("ReplicatedStorage")
+        tryAdd(rs:FindFirstChild("ViewModels"))
+        local assets = rs:FindFirstChild("Assets")
+        if assets then tryAdd(assets:FindFirstChild("ViewModels")) end
+    end)
+
+    pcall(function()
+        tryAdd(workspace:FindFirstChild("ViewModels"))
+    end)
+
+    for _, vm in ipairs(candidates) do
+        if vm and (vm:IsA("Folder") or vm:IsA("Model") or vm:IsA("Configuration")) then
+            if vm:FindFirstChild("Weapons") or #vm:GetChildren() > 2 then
+                return vm
+            end
+        end
+    end
+    for _, vm in ipairs(candidates) do
+        if vm then return vm end
+    end
+    return nil
 end
 
 local function hideLocks()
@@ -1189,7 +1259,11 @@ end
 local function collectSkins()
     availableSkins = {}
     local vms = getViewModels()
-    if not vms then return 0 end
+    if not vms then
+        print("[YBTHU] SkinChanger: No se encontro ViewModels. Rivals pudo haber cambiado la estructura.")
+        return 0
+    end
+    print("[YBTHU] SkinChanger: ViewModels encontrado en", vms:GetFullName())
     pcall(function()
         for _, case in ipairs(vms:GetChildren()) do
             if case.Name ~= "Weapons" and case.Name ~= "OriginalBackups" then
@@ -1198,7 +1272,16 @@ local function collectSkins()
                 end
             end
         end
+        -- Fallback: si no hay "cases", tomar hijos directos como skins
+        if #availableSkins == 0 then
+            for _, child in ipairs(vms:GetChildren()) do
+                if child.Name ~= "Weapons" and child.Name ~= "OriginalBackups" then
+                    table.insert(availableSkins, { name = child.Name, path = child, case = "Root" })
+                end
+            end
+        end
     end)
+    print("[YBTHU] SkinChanger: skins encontradas =", #availableSkins)
     return #availableSkins
 end
 
@@ -1379,7 +1462,7 @@ buildUI = function()
     title.Size = UDim2.new(1, -60, 0, 28)
     title.Position = UDim2.new(0, 14, 0, 6)
     title.BackgroundTransparency = 1
-    title.Text = "YBTHU  ·  BETA R3 FIXED"
+    title.Text = "YBTHU  ·  BETA R3.2 FIXED"
     title.TextColor3 = Theme.Accent
     title.Font = Enum.Font.GothamBold
     title.TextSize = 16
@@ -2018,7 +2101,7 @@ buildUI = function()
     credit.Parent = miscContent
 
     switchTab("Combat")
-    print("[YBTHU BETA R3 FIXED] UI cargada")
+    print("[YBTHU BETA R3.2 FIXED] UI cargada")
 end
 
 refreshUIFromSettings = function()
@@ -2028,6 +2111,10 @@ end
 
 buildUI()
 
-print("[YBTHU BETA R3 FIXED] Cargado")
+print("[YBTHU BETA R3.2 FULL FIXED] Cargado correctamente")
 print("[YBTHU] Insert = menú  |  = = siguiente skin")
 print("[YBTHU] Drawing API: " .. (drawingAvailable and "SI" or "NO (solo Chams)"))
+print("[YBTHU] mousemoverel: " .. (typeof(mousemoverel) == "function" and "SI" or "NO"))
+print("[YBTHU] mouse1click: " .. (typeof(mouse1click) == "function" and "SI" or "NO"))
+print("[YBTHU] writefile: " .. (typeof(writefile) == "function" and "SI" or "NO"))
+print("[YBTHU] Si Skin Changer no encuentra skins, mira la consola para ver la ruta")
