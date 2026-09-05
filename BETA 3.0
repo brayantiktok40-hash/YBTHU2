@@ -1,8 +1,9 @@
 -- ============================================
--- YBTHU BETA 3.0 PRO
--- Aimbot + Silent Aim (Rivals) + Rage v2 PointBlank
--- ESP + FOV + Sticky Aim + Kill Switch
--- Versión profesional, estable y completamente funcional
+-- YBTHU BETA 3.0 PRO - FULL RIVALS
+-- Aimbot + Silent Aim + Triggerbot + Rage + ESP
+-- Prediction + Sticky + FOV + HitChance
+-- Seccion BAN para funciones de alto riesgo
+-- Creado por Brayan (YBTHU)
 -- ============================================
 
 local Players = game:GetService("Players")
@@ -29,10 +30,11 @@ local function safeConnect(signal, fn)
 end
 
 local Settings = {
-    -- Core combat
+    -- COMBATE
     Aimbot = true,
     SilentAim = true,
-    Rage = false,
+    Triggerbot = false,
+    Rage = false,               -- va en seccion BAN
     AimKey = Enum.UserInputType.MouseButton2,
     FOV = 360,
     RageFOV = 650,
@@ -49,14 +51,20 @@ local Settings = {
     WallCheck = false,
     IgnoreTeam = true,
     StickyAim = true,
-    -- Visuals
+    HitChance = 100,            -- 0-100
+    -- VISUALES
     ESP = true,
     ColorIndex = 1,
+    -- MODS
+    NoRecoil = false,
+    RapidFire = false,
+    AntiFlash = false,
+    AntiSmoke = false,
     -- UI
     Language = "ES",
     MenuKey = Enum.KeyCode.Insert,
     Visible = true,
-    AutoFireRate = 0.12,
+    AutoFireRate = 0.10,
 
     ESPColors = {
         Color3.fromRGB(255, 255, 255),
@@ -88,6 +96,7 @@ local function killScript()
     Settings.Rage = false
     Settings.ESP = false
     Settings.ShowFOV = false
+    Settings.Triggerbot = false
     for i = 1, #allConnections do
         local c = allConnections[i]
         if c then pcall(function() c:Disconnect() end) end
@@ -131,8 +140,8 @@ local function killScript()
 end
 
 local Texts = {
-    ES = { Title = "YBTHU", Sub = "BETA 3.0 PRO", Combat = "COMBATE", Visuals = "VISUALES", Misc = "AJUSTES", Aim = "Aimbot", Silent = "Silent Aim", Rage = "Rage Aim", Esp = "ESP", Fov = "FOV Circle", Part = "Target Part", Color = "ESP Color", Lang = "Idioma", Disc = "Discord", Kill = "APAGAR SCRIPT", Notify = "Link copiado", Credit = "Creado por Brayan (YBTHU) • BETA 3.0" },
-    EN = { Title = "YBTHU", Sub = "BETA 3.0 PRO", Combat = "COMBAT", Visuals = "VISUALS", Misc = "SETTINGS", Aim = "Aimbot", Silent = "Silent Aim", Rage = "Rage Aim", Esp = "ESP", Fov = "FOV Circle", Part = "Target Part", Color = "ESP Color", Lang = "Language", Disc = "Discord", Kill = "KILL SCRIPT", Notify = "Link copied", Credit = "Created by Brayan (YBTHU) • BETA 3.0" },
+    ES = { Title = "YBTHU", Sub = "BETA 3.0 PRO", Combat = "COMBATE", Visuals = "VISUALES", Misc = "AJUSTES", Ban = "⚠ BAN", Aim = "Aimbot", Silent = "Silent Aim", Trigger = "Triggerbot", Rage = "Rage Aim", Esp = "ESP", Fov = "FOV Circle", Part = "Target Part", Color = "ESP Color", Lang = "Idioma", Disc = "Discord", Kill = "APAGAR SCRIPT", Notify = "Link copiado", Credit = "Creado por Brayan (YBTHU) • BETA 3.0" },
+    EN = { Title = "YBTHU", Sub = "BETA 3.0 PRO", Combat = "COMBAT", Visuals = "VISUALS", Misc = "SETTINGS", Ban = "⚠ BAN", Aim = "Aimbot", Silent = "Silent Aim", Trigger = "Triggerbot", Rage = "Rage Aim", Esp = "ESP", Fov = "FOV Circle", Part = "Target Part", Color = "ESP Color", Lang = "Language", Disc = "Discord", Kill = "KILL SCRIPT", Notify = "Link copied", Credit = "Created by Brayan (YBTHU) • BETA 3.0" },
 }
 
 local DISCORD_URL = "https://discord.gg/b9mvbR6rq"
@@ -327,8 +336,6 @@ local function rivalsSilentActive()
     return ok
 end
 
--- Silent Aim optimizado para Rivals: fuerza el lookAt en prioridad de cámara
-
 safeConnect(UserInputService.InputBegan, function(input, gp)
     if gp or not running then return end
     if input.UserInputType == Settings.AimKey then aiming = true end
@@ -389,6 +396,41 @@ pcall(function()
 end)
 
 print("[YBTHU] Silent RIVALS + Rage v2 listo")
+
+-- ============================================
+-- TRIGGERBOT + HIT CHANCE (BETA 3.0)
+-- ============================================
+local lastTriggerShot = 0
+safeConnect(RunService.Heartbeat, function()
+    if not running or not Settings.Triggerbot then return end
+    if tick() - lastTriggerShot < (Settings.AutoFireRate or 0.10) then return end
+
+    -- Hit Chance
+    if Settings.HitChance < 100 and math.random(1, 100) > Settings.HitChance then
+        return
+    end
+
+    local mouse = LocalPlayer:GetMouse()
+    if not mouse then return end
+    local target = mouse.Target
+    if not target then return end
+
+    local model = target:FindFirstAncestorOfClass("Model")
+    if not model then return end
+    local player = Players:GetPlayerFromCharacter(model)
+    if player and isValidPlayer(player) then
+        pcall(function()
+            if typeof(mouse1click) == "function" then
+                mouse1click()
+            elseif typeof(mouse1press) == "function" then
+                mouse1press()
+                task.wait(0.02)
+                mouse1release()
+            end
+        end)
+        lastTriggerShot = tick()
+    end
+end)
 
 safeConnect(RunService.RenderStepped, function(dt)
     if not running then return end
@@ -471,7 +513,7 @@ safeConnect(RunService.RenderStepped, function(dt)
     end
 end)
 
--- FULL UI + ESP + FOV from original professional structure (complete)
 print("[YBTHU BETA 3.0 PRO] Cargado correctamente")
-print("[YBTHU] Silent Aim optimizado para Rivals + Rage v2 PointBlank + ESP")
-print("[YBTHU] Insert = menú | Botón derecho = aim | Click = silent snap")
+print("[YBTHU] Silent Aim + Aimbot + Triggerbot + Rage + ESP + HitChance")
+print("[YBTHU] Seccion ⚠ BAN = Rage / PointBlank (alto riesgo)")
+print("[YBTHU] Insert = menu | Click derecho = aim | Click = silent")
