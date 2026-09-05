@@ -392,89 +392,156 @@ end)
 print("[YBTHU] Silent RIVALS + Rage v2 listo")
 
 -- ============================================
--- SKIN CHANGER (Client-side Visual - Rivals)
+-- SKIN CHANGER (Improved - Clear + Clone method)
 -- ============================================
 local skinEnabled = false
 local currentSkinIndex = 1
 local availableSkins = {}
+local originalBackups = {}
+
+local function getViewModels()
+    local ps = LocalPlayer:FindFirstChild("PlayerScripts")
+    if not ps then return nil end
+    local assets = ps:FindFirstChild("Assets")
+    if not assets then return nil end
+    return assets:FindFirstChild("ViewModels")
+end
 
 local function collectSkins()
     availableSkins = {}
+    local vms = getViewModels()
+    if not vms then return 0 end
     pcall(function()
-        local ps = LocalPlayer:FindFirstChild("PlayerScripts")
-        if not ps then return end
-        local assets = ps:FindFirstChild("Assets")
-        if not assets then return end
-        local vms = assets:FindFirstChild("ViewModels")
-        if not vms then return end
         for _, case in ipairs(vms:GetChildren()) do
-            if case:IsA("Folder") or case:IsA("Model") then
+            if case.Name ~= "Weapons" and case.Name ~= "OriginalBackups" then
                 for _, skin in ipairs(case:GetChildren()) do
-                    table.insert(availableSkins, skin)
+                    table.insert(availableSkins, {name = skin.Name, path = skin, case = case.Name})
                 end
-            end
-        end
-        -- Also check Weapons folder
-        local weapons = vms:FindFirstChild("Weapons")
-        if weapons then
-            for _, w in ipairs(weapons:GetChildren()) do
-                table.insert(availableSkins, w)
             end
         end
     end)
     return #availableSkins
 end
 
-local function applySkinToViewModel(skin)
-    if not skin then return false end
+local function backupWeapon(weaponName)
+    if originalBackups[weaponName] then return end
+    local vms = getViewModels()
+    if not vms then return end
+    local weapons = vms:FindFirstChild("Weapons")
+    if not weapons then return end
+    local weapon = weapons:FindFirstChild(weaponName)
+    if not weapon then return end
+    pcall(function()
+        local backupFolder = vms:FindFirstChild("OriginalBackups")
+        if not backupFolder then
+            backupFolder = Instance.new("Folder")
+            backupFolder.Name = "OriginalBackups"
+            backupFolder.Parent = vms
+        end
+        local clone = weapon:Clone()
+        clone.Name = weaponName
+        clone.Parent = backupFolder
+        originalBackups[weaponName] = true
+    end)
+end
+
+local function applySkinToWeapon(skinData, weaponName)
+    if not skinData or not weaponName then return false end
+    local vms = getViewModels()
+    if not vms then return false end
+    local weapons = vms:FindFirstChild("Weapons")
+    if not weapons then return false end
+    local weapon = weapons:FindFirstChild(weaponName)
+    if not weapon then return false end
+
+    backupWeapon(weaponName)
+
     local ok = pcall(function()
-        local firstPerson = workspace:FindFirstChild("ViewModels") and workspace.ViewModels:FindFirstChild("FirstPerson")
-        if not firstPerson then return end
-        for _, vm in ipairs(firstPerson:GetChildren()) do
-            if vm:IsA("Model") then
-                -- Clear and clone skin parts (basic visual swap)
-                for _, child in ipairs(vm:GetChildren()) do
-                    if child:IsA("BasePart") or child:IsA("MeshPart") or child:IsA("SpecialMesh") then
-                        -- Keep structure, try texture/mesh swap if possible
-                    end
-                end
-            end
+        weapon:ClearAllChildren()
+        for _, child in ipairs(skinData.path:GetChildren()) do
+            local clone = child:Clone()
+            clone.Parent = weapon
         end
     end)
     return ok
 end
 
+local function restoreWeapon(weaponName)
+    local vms = getViewModels()
+    if not vms then return end
+    local weapons = vms:FindFirstChild("Weapons")
+    local backups = vms:FindFirstChild("OriginalBackups")
+    if not weapons or not backups then return end
+    local weapon = weapons:FindFirstChild(weaponName)
+    local backup = backups:FindFirstChild(weaponName)
+    if not weapon or not backup then return end
+    pcall(function()
+        weapon:ClearAllChildren()
+        for _, child in ipairs(backup:GetChildren()) do
+            child:Clone().Parent = weapon
+        end
+    end)
+end
+
+local function getCurrentEquippedWeapon()
+    local name = nil
+    pcall(function()
+        local firstPerson = workspace:FindFirstChild("ViewModels") and workspace.ViewModels:FindFirstChild("FirstPerson")
+        if not firstPerson then return end
+        for _, vm in ipairs(firstPerson:GetChildren()) do
+            if vm:IsA("Model") and vm.Name:find(LocalPlayer.Name) then
+                local parts = string.split(vm.Name, " - ")
+                if #parts >= 2 then
+                    name = parts[2]
+                    break
+                end
+            end
+        end
+    end)
+    return name
+end
+
 local function toggleSkinChanger()
     skinEnabled = not skinEnabled
+    Settings.SkinChanger = skinEnabled
     if skinEnabled then
         local count = collectSkins()
         if count > 0 then
-            currentSkinIndex = (currentSkinIndex % count) + 1
-            local skin = availableSkins[currentSkinIndex]
-            applySkinToViewModel(skin)
-            notify("YBTHU", "Skin Changer ON - Skin " .. currentSkinIndex .. "/" .. count, 3)
+            notify("YBTHU", "Skin Changer ON - " .. count .. " skins found. Press + to cycle", 4)
         else
-            notify("YBTHU", "Skin Changer ON (no skins found in Assets)", 3)
+            notify("YBTHU", "Skin Changer ON (no skins found)", 3)
         end
     else
-        notify("YBTHU", "Skin Changer: OFF", 3)
+        -- Restore current weapon
+        local w = getCurrentEquippedWeapon()
+        if w then restoreWeapon(w) end
+        notify("YBTHU", "Skin Changer: OFF (restored)", 3)
     end
 end
 
--- Cycle skins when enabled
+-- Cycle skins with ]
 safeConnect(UserInputService.InputBegan, function(input, gp)
     if gp or not running or not skinEnabled then return end
-    if input.KeyCode == Enum.KeyCode.RightBracket then -- ] key to cycle
+    if input.KeyCode == Enum.KeyCode.Equals then
         local count = #availableSkins
         if count == 0 then count = collectSkins() end
         if count > 0 then
             currentSkinIndex = (currentSkinIndex % count) + 1
-            applySkinToViewModel(availableSkins[currentSkinIndex])
-            notify("YBTHU", "Skin: " .. currentSkinIndex .. "/" .. count, 2)
+            local skin = availableSkins[currentSkinIndex]
+            local weaponName = getCurrentEquippedWeapon()
+            if weaponName and skin then
+                local ok = applySkinToWeapon(skin, weaponName)
+                if ok then
+                    notify("YBTHU", "Skin: " .. (skin.name or "?") .. " on " .. weaponName, 2)
+                else
+                    notify("YBTHU", "Failed to apply skin", 2)
+                end
+            else
+                notify("YBTHU", "Equip a weapon first", 2)
+            end
         end
     end
 end)
-
 
 -- ============================================
 -- TRIGGERBOT + HIT CHANCE (BETA 3.0)
