@@ -67,15 +67,15 @@ local Settings = {
     Triggerbot = false,
     AimKey = Enum.UserInputType.MouseButton2,
     FOV = 340,
-    RageFOV = 800,              -- FOV grande para Rage
+    RageFOV = 900,
     ShowFOV = true,
-    MaxDistance = 500,
+    MaxDistance = 600,
     TargetPart = "Head",
-    Smoothness = 0.52,          -- Mas bajo = menos temblor
-    AimDeadzone = 4.0,          -- Evita micro-correcciones que tiemblan
+    Smoothness = 0.52,
+    AimDeadzone = 4.0,
     SilentSmoothness = 0.95,
-    RageSmoothness = 0.72,      -- Suave pero firme (1.0 temblaba)
-    Prediction = 0.12,
+    RageSmoothness = 0.78,      -- Firme sin temblor
+    Prediction = 0.13,
     MouseAccel = 1.0,
     TargetRefresh = 0.045,
     WallCheck = false,
@@ -83,7 +83,8 @@ local Settings = {
     IgnoreFriends = true,
     StickyAim = true,
     HitChance = 100,
-    AutoFireRate = 0.08,        -- Disparo mas rapido en Rage/Trigger
+    AutoFireRate = 0.07,
+    RageFireOnlyOnTarget = true, -- Solo dispara si esta alineado al target
 
     ESP = true,
     ESPBoxes = true,
@@ -857,7 +858,7 @@ safeConnect(RunService.RenderStepped, function(dt)
     if not passHitChance() then return end
 
     local now = os.clock()
-    local refresh = Settings.Rage and 0.02 or (Settings.TargetRefresh or 0.055)
+    local refresh = Settings.Rage and 0.018 or (Settings.TargetRefresh or 0.055)
     if now - lastScan >= refresh or not currentTarget or not currentTarget.Parent then
         lastScan = now
         local nextTarget = getClosestTarget()
@@ -876,44 +877,73 @@ safeConnect(RunService.RenderStepped, function(dt)
     local targetPos = getPredictedPosition(currentTarget)
     if not targetPos then return end
 
-    -- Suavizar posicion del target (evita temblor por prediccion)
     if smoothedTarget ~= currentTarget or not smoothedAimPosition then
         smoothedTarget = currentTarget
         smoothedAimPosition = targetPos
     else
-        local follow = Settings.Rage and (dt * 10) or (dt * 8)
-        smoothedAimPosition = smoothedAimPosition:Lerp(targetPos, math.clamp(follow, 0.12, 0.35))
+        local follow = Settings.Rage and (dt * 14) or (dt * 8)
+        smoothedAimPosition = smoothedAimPosition:Lerp(targetPos, math.clamp(follow, 0.15, 0.42))
     end
     silentAimPos = smoothedAimPosition
 
     if not (Settings.Aimbot or Settings.Rage) then return end
 
     local alpha = Settings.Rage and Settings.RageSmoothness or Settings.Smoothness
-
-    -- RAGE Camera Lock: SOLO camara (sin mouse) para no temblar por doble correccion
-    if Settings.Rage and Settings.RageCameraLock then
-        pcall(function()
-            local look = CFrame.lookAt(Camera.CFrame.Position, smoothedAimPosition)
-            Camera.CFrame = Camera.CFrame:Lerp(look, math.clamp(alpha, 0.35, 0.85))
-        end)
-        return -- no mover mouse encima
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local screenPoint, onScreen = Camera:WorldToViewportPoint(smoothedAimPosition)
+    local screenOffset = 9999
+    if onScreen and screenPoint.Z > 0 then
+        local dx = screenPoint.X - screenCenter.X
+        local dy = screenPoint.Y - screenCenter.Y
+        screenOffset = math.sqrt(dx * dx + dy * dy)
     end
 
-    local screenPoint, onScreen = Camera:WorldToViewportPoint(smoothedAimPosition)
+    -- ===================== RAGE =====================
+    if Settings.Rage then
+        -- Camera lock adaptativo: lejos = rapido, cerca = suave (sin temblor)
+        if Settings.RageCameraLock then
+            pcall(function()
+                local look = CFrame.lookAt(Camera.CFrame.Position, smoothedAimPosition)
+                local t
+                if screenOffset > 120 then
+                    t = 0.92
+                elseif screenOffset > 40 then
+                    t = math.clamp(alpha, 0.55, 0.82)
+                else
+                    t = math.clamp(alpha * 0.7, 0.35, 0.6)
+                end
+                Camera.CFrame = Camera.CFrame:Lerp(look, t)
+            end)
+        else
+            -- Sin camera lock: mouse mas agresivo pero controlado
+            if onScreen and screenPoint.Z > 0 and screenOffset > 2.5 then
+                local dx = screenPoint.X - screenCenter.X
+                local dy = screenPoint.Y - screenCenter.Y
+                local strength = (screenOffset > 80) and 0.55 or 0.28
+                local maxStep = 55
+                local moveX = math.clamp(dx * strength, -maxStep, maxStep)
+                local moveY = math.clamp(dy * strength, -maxStep, maxStep)
+                if typeof(mousemoverel) == "function" then
+                    mousemoverel(moveX, moveY)
+                elseif typeof(Input) == "table" and typeof(Input.MouseMove) == "function" then
+                    Input.MouseMove(moveX, moveY)
+                end
+            end
+        end
+        return
+    end
+
+    -- ===================== AIMBOT NORMAL =====================
     if onScreen and screenPoint.Z > 0 then
-        local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
         local deltaX = screenPoint.X - screenCenter.X
         local deltaY = screenPoint.Y - screenCenter.Y
-        local screenOffset = math.sqrt(deltaX * deltaX + deltaY * deltaY)
-        local deadzone = Settings.Rage and 3.0 or Settings.AimDeadzone
+        local deadzone = Settings.AimDeadzone
 
         if screenOffset > deadzone then
             local alphaClamped = math.clamp(alpha, 0.05, 0.95)
-            -- Curva mas suave (menos temblor cerca del centro)
             local frameAlpha = 1 - math.pow(1 - alphaClamped, math.clamp(dt * 60, 0.4, 1.4))
             local accel = Settings.MouseAccel or 1.0
 
-            -- Cerca del centro: mucho mas suave
             local distFactor
             if screenOffset > 150 then
                 distFactor = 1.0
@@ -923,8 +953,8 @@ safeConnect(RunService.RenderStepped, function(dt)
                 distFactor = 0.45
             end
 
-            local strength = frameAlpha * distFactor * accel * (Settings.Rage and 1.1 or 1.0)
-            local maxStep = Settings.Rage and 45 or 32
+            local strength = frameAlpha * distFactor * accel
+            local maxStep = 32
             local moveX = math.clamp(deltaX * strength, -maxStep, maxStep)
             local moveY = math.clamp(deltaY * strength, -maxStep, maxStep)
 
@@ -949,13 +979,24 @@ safeConnect(RunService.RenderStepped, function(dt)
     end
 end)
 
--- RAGE Auto Shoot (dispara solo cuando hay target)
+-- RAGE Auto Shoot: solo cuando el aim esta cerca del target (mas limpio)
 local lastRageShot = 0
 safeConnect(RunService.Heartbeat, function()
     if not running or not Settings.Rage or not Settings.RageAutoShoot then return end
     if not currentTarget or not currentTarget.Parent then return end
     if not passHitChance() then return end
-    local rate = Settings.AutoFireRate or 0.08
+
+    -- Comprobar alineacion en pantalla
+    if Settings.RageFireOnlyOnTarget then
+        local aimPos = smoothedAimPosition or currentTarget.Position
+        local sp, onScreen = Camera:WorldToViewportPoint(aimPos)
+        if not onScreen or sp.Z <= 0 then return end
+        local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+        local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+        if dist > 45 then return end -- aun no alineado
+    end
+
+    local rate = Settings.AutoFireRate or 0.07
     if tick() - lastRageShot < rate then return end
     lastRageShot = tick()
     fireOnce()
