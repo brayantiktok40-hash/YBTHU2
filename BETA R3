@@ -68,13 +68,13 @@ local Settings = {
     ShowFOV = true,
     MaxDistance = 500,
     TargetPart = "Head",
-    Smoothness = 0.82,          -- Antes 0.38 (muy suave). Ahora mas pegajoso
-    AimDeadzone = 2.5,          -- Antes 5.0. Menos deadzone = sigue mejor
+    Smoothness = 0.88,
+    AimDeadzone = 1.8,
     SilentSmoothness = 0.95,
     RageSmoothness = 0.99,
-    Prediction = 0.14,
-    MouseAccel = 1.15,          -- Antes 0.95. Mas agresivo
-    TargetRefresh = 0.04,       -- Refresco de target mas rapido
+    Prediction = 0.155,
+    MouseAccel = 1.25,
+    TargetRefresh = 0.035,
     WallCheck = false,
     IgnoreTeam = true,          -- Re-activado con deteccion mejorada
     IgnoreFriends = true,       -- NUEVO: ignora amigos de Roblox (soluciona "se pega a mi amigo")
@@ -536,7 +536,7 @@ end
 
 local function getPredictedPosition(part)
     if not part then return nil end
-    local pred = Settings.Rage and (Settings.Prediction + 0.14) or Settings.Prediction
+    local pred = Settings.Rage and (Settings.Prediction + 0.16) or Settings.Prediction
     if pred <= 0 then return part.Position end
     local velocity = Vector3.zero
     pcall(function()
@@ -544,8 +544,16 @@ local function getPredictedPosition(part)
         local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso"))
         local src = root or part
         velocity = src.AssemblyLinearVelocity or src.Velocity or Vector3.zero
+        -- Si la velocidad es casi 0, intentar con Humanoid MoveDirection
+        if velocity.Magnitude < 0.5 and char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum and hum.MoveDirection.Magnitude > 0.1 then
+                velocity = hum.MoveDirection * (hum.WalkSpeed or 16)
+            end
+        end
     end)
-    return part.Position + Vector3.new(velocity.X, velocity.Y * 0.25, velocity.Z) * pred
+    -- Menos prediccion vertical (salta menos el aim)
+    return part.Position + Vector3.new(velocity.X, velocity.Y * 0.2, velocity.Z) * pred
 end
 
 local function getActiveFOV()
@@ -578,7 +586,7 @@ local function getClosestTarget()
             local sp, onScreen = Camera:WorldToViewportPoint(stickyTarget.Position)
             if onScreen and sp.Z > 0 then
                 local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                local stickyMul = Settings.Rage and 2.2 or 1.7   -- Mas pegajoso
+                local stickyMul = Settings.Rage and 2.4 or 1.9
                 if dist <= fov * stickyMul and hasLineOfSight(camPos, stickyTarget, char) then
                     return stickyTarget
                 end
@@ -802,17 +810,19 @@ safeConnect(RunService.RenderStepped, function(dt)
         smoothedTarget = currentTarget
         smoothedAimPosition = targetPos
     else
-        -- Lerp mas rapido para que siga mejor al personaje
-        smoothedAimPosition = smoothedAimPosition:Lerp(targetPos, math.clamp(dt * 12, 0.15, 0.45))
+        -- Sigue al target de forma mas reactiva
+        smoothedAimPosition = smoothedAimPosition:Lerp(targetPos, math.clamp(dt * 16, 0.2, 0.55))
     end
     silentAimPos = smoothedAimPosition
 
     if not (Settings.Aimbot or Settings.Rage) then return end
 
     local alpha
-    if Settings.Rage then alpha = Settings.RageSmoothness
-    elseif Settings.SilentAim then alpha = Settings.SilentSmoothness
-    else alpha = Settings.Smoothness end
+    if Settings.Rage then
+        alpha = Settings.RageSmoothness
+    else
+        alpha = Settings.Smoothness
+    end
 
     local screenPoint, onScreen = Camera:WorldToViewportPoint(smoothedAimPosition)
     if onScreen and screenPoint.Z > 0 then
@@ -820,20 +830,36 @@ safeConnect(RunService.RenderStepped, function(dt)
         local deltaX = screenPoint.X - screenCenter.X
         local deltaY = screenPoint.Y - screenCenter.Y
         local screenOffset = math.sqrt(deltaX * deltaX + deltaY * deltaY)
-        local deadzone = Settings.Rage and 2.0 or Settings.AimDeadzone
+        local deadzone = Settings.Rage and 1.5 or Settings.AimDeadzone
+
         if screenOffset > deadzone then
-            -- Mas agresivo / pegajoso
-            local frameAlpha = 1 - math.pow(1 - math.clamp(alpha, 0.05, 1), math.clamp(dt * 60, 0.5, 2.0))
-            local accel = Settings.MouseAccel or 1.15
-            local distFactor = math.clamp(screenOffset / 100, 0.55, 1.15)
+            -- Curva: lejos = rapido, cerca = preciso (menos overshoot)
+            local alphaClamped = math.clamp(alpha, 0.05, 1)
+            local frameAlpha = 1 - math.pow(1 - alphaClamped, math.clamp(dt * 60, 0.6, 2.2))
+            local accel = Settings.MouseAccel or 1.25
+
+            -- Factor por distancia en pantalla
+            local distFactor
+            if screenOffset > 120 then
+                distFactor = 1.2          -- lejos: alcanza rapido
+            elseif screenOffset > 40 then
+                distFactor = 0.95
+            else
+                distFactor = 0.7          -- cerca: no se pasa del target
+            end
+
             local strength = frameAlpha * distFactor * accel
-            local maxStep = Settings.Rage and 120 or 48   -- Antes 28, ahora sigue mucho mejor
+            local maxStep = Settings.Rage and 140 or 62
             local moveX = math.clamp(deltaX * strength, -maxStep, maxStep)
             local moveY = math.clamp(deltaY * strength, -maxStep, maxStep)
+
+            -- Varios metodos de mover el mouse (segun executor)
             if typeof(mousemoverel) == "function" then
                 mousemoverel(moveX, moveY)
             elseif typeof(Input) == "table" and typeof(Input.MouseMove) == "function" then
                 Input.MouseMove(moveX, moveY)
+            elseif typeof(mouse1move) == "function" then
+                pcall(mouse1move, moveX, moveY)
             end
         end
     end
@@ -2175,5 +2201,5 @@ print("[YBTHU] Drawing API: " .. (drawingAvailable and "SI" or "NO (solo Chams)"
 print("[YBTHU] mousemoverel: " .. (typeof(mousemoverel) == "function" and "SI" or "NO"))
 print("[YBTHU] IgnoreFriends = ON (ya no se pega a tus amigos)")
 print("[YBTHU] IgnoreTeam mejorado (varios metodos de deteccion)")
-print("[YBTHU] Aimbot mas pegajoso (Smoothness 0.82)")
+print("[YBTHU] Aimbot mejorado: mas preciso, mejor prediccion, menos overshoot")
 print("[YBTHU] Silent Aim: solo al disparar (sin apuntar, no es aimbot constante)")
