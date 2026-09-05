@@ -1,5 +1,5 @@
 -- ============================================
--- YBTHU BETA R3.3 FULL FIXED - FULL RIVALS
+-- YBTHU BETA R3.4 RAGE - FULL RIVALS
 -- Correcciones R3.3:
 -- - Ignore Team ARREGLADO (ya no ignora a todos los enemigos)
 -- - Aimbot mucho mas pegajoso (Smoothness 0.82, deadzone bajo, maxStep alto)
@@ -61,26 +61,30 @@ local Settings = {
     Aimbot = true,
     SilentAim = true,
     Rage = false,
+    RageAutoShoot = true,       -- Auto dispara al tener target en Rage
+    RageWallbang = true,        -- Point-blank wallbang en Rage
+    RageCameraLock = true,      -- Lock de camara instantaneo en Rage
     Triggerbot = false,
     AimKey = Enum.UserInputType.MouseButton2,
     FOV = 340,
-    RageFOV = 600,
+    RageFOV = 900,
     ShowFOV = true,
-    MaxDistance = 500,
+    MaxDistance = 600,
     TargetPart = "Head",
-    Smoothness = 0.82,          -- Antes 0.38 (muy suave). Ahora mas pegajoso
-    AimDeadzone = 2.5,          -- Antes 5.0. Menos deadzone = sigue mejor
+    Smoothness = 0.52,
+    AimDeadzone = 4.0,
     SilentSmoothness = 0.95,
-    RageSmoothness = 0.99,
-    Prediction = 0.14,
-    MouseAccel = 1.15,          -- Antes 0.95. Mas agresivo
-    TargetRefresh = 0.04,       -- Refresco de target mas rapido
+    RageSmoothness = 0.78,      -- Firme sin temblor
+    Prediction = 0.13,
+    MouseAccel = 1.0,
+    TargetRefresh = 0.045,
     WallCheck = false,
-    IgnoreTeam = true,          -- Re-activado con deteccion mejorada
-    IgnoreFriends = true,       -- NUEVO: ignora amigos de Roblox (soluciona "se pega a mi amigo")
+    IgnoreTeam = false,
+    IgnoreFriends = true,
     StickyAim = true,
     HitChance = 100,
-    AutoFireRate = 0.10,
+    AutoFireRate = 0.07,
+    RageFireOnlyOnTarget = true, -- Solo dispara si esta alineado al target
 
     ESP = true,
     ESPBoxes = true,
@@ -123,7 +127,7 @@ local Settings = {
     },
 }
 
-local CONFIG_NAME = "YBTHU_BETA_R3_3_Config.json"
+local CONFIG_NAME = "YBTHU_BETA_R3_4_Config.json"
 local toggleRefs = {}
 local sliderRefs = {}
 local uiLabelRefs = {}
@@ -153,6 +157,9 @@ local function saveConfig()
         Aimbot = Settings.Aimbot,
         SilentAim = Settings.SilentAim,
         Rage = Settings.Rage,
+        RageAutoShoot = Settings.RageAutoShoot,
+        RageWallbang = Settings.RageWallbang,
+        RageCameraLock = Settings.RageCameraLock,
         Triggerbot = Settings.Triggerbot,
         FOV = Settings.FOV,
         RageFOV = Settings.RageFOV,
@@ -231,8 +238,13 @@ local function loadConfig()
 end
 
 pcall(loadConfig)
+-- Siempre mostrar menu al cargar (config antigua podia dejar Visible=false)
+Settings.Visible = true
 
 local pbSavedCFrame, pbUntil, pbBusy, lastPB = nil, 0, false, 0
+local pbSavedCamCFrame, pbSavedCamType = nil, nil
+local PB_HOLD_TIME = 0.48   -- tiempo pegado al enemigo antes de volver
+local PB_COOLDOWN = 0.35
 local espCache = {}
 local unlockConnection = nil
 
@@ -325,22 +337,33 @@ local function killScript()
             local root = char and char:FindFirstChild("HumanoidRootPart")
             if root then root.CFrame = pbSavedCFrame end
         end
+        if pbSavedCamType then
+            Camera.CameraType = pbSavedCamType
+        else
+            Camera.CameraType = Enum.CameraType.Custom
+        end
+        if pbSavedCamCFrame then
+            Camera.CFrame = pbSavedCamCFrame
+        end
         pbSavedCFrame = nil
+        pbSavedCamCFrame = nil
+        pbSavedCamType = nil
         pbBusy = false
     end)
     if Runtime.__YBTHU_R3_KILL == killScript then
         Runtime.__YBTHU_R3_KILL = nil
     end
-    print("[YBTHU BETA R3.3 FIXED] Script apagado")
+    print("[YBTHU BETA R3.4 RAGE] Script apagado")
 end
 
 Runtime.__YBTHU_R3_KILL = killScript
 
 local Texts = {
     ES = {
-        Title = "YBTHU", Sub = "BETA R3.3 FIXED",
+        Title = "YBTHU", Sub = "BETA R3.4 RAGE",
         Combat = "COMBATE", Visuals = "VISUALES", GunMods = "GUN MODS", Misc = "AJUSTES",
         Aim = "Aimbot", Silent = "Silent Aim", Trigger = "Triggerbot", Rage = "Rage Aim",
+        RageAuto = "Rage Auto Shoot", RageWB = "Rage Wallbang", RageCam = "Rage Camera Lock",
         Esp = "ESP", Skin = "Skin Changer", Fov = "FOV Circle", Part = "Target Part",
         Color = "ESP Color", Lang = "Idioma", Disc = "Discord", Kill = "APAGAR SCRIPT",
         Notify = "Link copiado", Credit = "Creado por Brayan (YBTHU)",
@@ -355,9 +378,10 @@ local Texts = {
         MaxDist = "Max Distance", AntiFlash = "Anti Flash", AntiSmoke = "Anti Smoke"
     },
     EN = {
-        Title = "YBTHU", Sub = "BETA R3.3 FIXED",
+        Title = "YBTHU", Sub = "BETA R3.4 RAGE",
         Combat = "COMBAT", Visuals = "VISUALS", GunMods = "GUN MODS", Misc = "SETTINGS",
         Aim = "Aimbot", Silent = "Silent Aim", Trigger = "Triggerbot", Rage = "Rage Aim",
+        RageAuto = "Rage Auto Shoot", RageWB = "Rage Wallbang", RageCam = "Rage Camera Lock",
         Esp = "ESP", Skin = "Skin Changer", Fov = "FOV Circle", Part = "Target Part",
         Color = "ESP Color", Lang = "Language", Disc = "Discord", Kill = "KILL SCRIPT",
         Notify = "Link copied", Credit = "Created by Brayan (YBTHU)",
@@ -397,13 +421,29 @@ local Theme = {
 }
 
 local function getGuiParent()
+    -- 1) gethui (mejor, invisible a CoreGui detector)
     if typeof(gethui) == "function" then
         local ok, hui = pcall(gethui)
         if ok and hui then return hui end
     end
+    -- 2) CoreGui
     local ok, core = pcall(function() return game:GetService("CoreGui") end)
-    if ok and core then return core end
-    return LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 5)
+    if ok and core then
+        local ok2 = pcall(function()
+            local t = Instance.new("Folder")
+            t.Parent = core
+            t:Destroy()
+        end)
+        if ok2 then return core end
+    end
+    -- 3) PlayerGui
+    local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if pg then return pg end
+    local ok3, pg2 = pcall(function()
+        return LocalPlayer:WaitForChild("PlayerGui", 8)
+    end)
+    if ok3 and pg2 then return pg2 end
+    return nil
 end
 
 local function notify(title, text, duration)
@@ -413,6 +453,30 @@ local function notify(title, text, duration)
 end
 
 notify("YBTHU", Texts[Settings.Language].Credit, 5)
+print("[YBTHU] checkpoint: despues del credito")
+
+-- Menu de emergencia (por si el script falla antes del UI completo)
+pcall(function()
+    local parent = getGuiParent()
+    if not parent then return end
+    local eg = Instance.new("ScreenGui")
+    eg.Name = "YBTHU_EMERGENCY"
+    eg.ResetOnSpawn = false
+    eg.DisplayOrder = 999998
+    eg.IgnoreGuiInset = true
+    eg.Parent = parent
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0, 200, 0, 36)
+    b.Position = UDim2.new(0, 12, 0, 80)
+    b.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    b.TextColor3 = Color3.fromRGB(0, 255, 170)
+    b.Text = "YBTHU cargando... (Insert)"
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 12
+    b.Parent = eg
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+    screenGuiRef = screenGuiRef or eg
+end)
 
 local function isAimHeld()
     local key = Settings.AimKey
@@ -536,7 +600,7 @@ end
 
 local function getPredictedPosition(part)
     if not part then return nil end
-    local pred = Settings.Rage and (Settings.Prediction + 0.14) or Settings.Prediction
+    local pred = Settings.Rage and (Settings.Prediction + 0.16) or Settings.Prediction
     if pred <= 0 then return part.Position end
     local velocity = Vector3.zero
     pcall(function()
@@ -544,8 +608,16 @@ local function getPredictedPosition(part)
         local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso"))
         local src = root or part
         velocity = src.AssemblyLinearVelocity or src.Velocity or Vector3.zero
+        -- Si la velocidad es casi 0, intentar con Humanoid MoveDirection
+        if velocity.Magnitude < 0.5 and char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum and hum.MoveDirection.Magnitude > 0.1 then
+                velocity = hum.MoveDirection * (hum.WalkSpeed or 16)
+            end
+        end
     end)
-    return part.Position + Vector3.new(velocity.X, velocity.Y * 0.25, velocity.Z) * pred
+    -- Menos prediccion vertical (salta menos el aim)
+    return part.Position + Vector3.new(velocity.X, velocity.Y * 0.2, velocity.Z) * pred
 end
 
 local function getActiveFOV()
@@ -578,7 +650,7 @@ local function getClosestTarget()
             local sp, onScreen = Camera:WorldToViewportPoint(stickyTarget.Position)
             if onScreen and sp.Z > 0 then
                 local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                local stickyMul = Settings.Rage and 2.2 or 1.7   -- Mas pegajoso
+                local stickyMul = Settings.Rage and 2.4 or 1.9
                 if dist <= fov * stickyMul and hasLineOfSight(camPos, stickyTarget, char) then
                     return stickyTarget
                 end
@@ -611,8 +683,8 @@ local function getClosestTarget()
 end
 
 local function doPointBlankWallbang()
-    if not Settings.Rage or not running then return end
-    if tick() - lastPB < 0.18 then return end
+    if not Settings.Rage or not Settings.RageWallbang or not running then return end
+    if tick() - lastPB < PB_COOLDOWN then return end
     local target = currentTarget
     if not target or not target.Parent then
         target = getClosestTarget()
@@ -624,48 +696,123 @@ local function doPointBlankWallbang()
     local root = char:FindFirstChild("HumanoidRootPart")
     if not root then return end
     local tpos = target.Position
+
+    -- Si ya estas en wallbang, solo extender el tiempo
     if pbBusy and pbSavedCFrame then
-        pbUntil = tick() + 0.14
+        pbUntil = tick() + PB_HOLD_TIME
         lastPB = tick()
         return
     end
+
     pbBusy = true
     lastPB = tick()
     local ok = pcall(function()
+        -- Guardar posicion del personaje Y de la camara
         pbSavedCFrame = root.CFrame
-        local dir = (root.Position - tpos)
+        pbSavedCamCFrame = Camera.CFrame
+        pbSavedCamType = Camera.CameraType
+
+        -- Congelar camara (no se mueve aunque el body se teletransporte)
+        Camera.CameraType = Enum.CameraType.Scriptable
+        Camera.CFrame = pbSavedCamCFrame
+
+        local dir = root.Position - tpos
         if dir.Magnitude < 0.5 then dir = Vector3.new(0, 0, 1) end
         dir = dir.Unit
-        local nearPos = tpos + dir * 2.2 + Vector3.new(0, 1.2, 0)
-        root.CFrame = CFrame.new(nearPos, tpos)
-        pbUntil = tick() + 0.14
+        local nearPos = tpos + dir * 2.5 + Vector3.new(0, 1.0, 0)
+        root.CFrame = CFrame.lookAt(nearPos, tpos)
+
+        pbUntil = tick() + PB_HOLD_TIME
     end)
     if not ok then
         pbBusy = false
         pbSavedCFrame = nil
+        pbSavedCamCFrame = nil
+        pcall(function()
+            if pbSavedCamType then Camera.CameraType = pbSavedCamType end
+        end)
+        pbSavedCamType = nil
     end
+end
+
+-- Mantener camara fija mientras el body esta en wallbang
+local function keepPointBlankCamera()
+    if not pbBusy or not pbSavedCamCFrame then return end
+    pcall(function()
+        Camera.CameraType = Enum.CameraType.Scriptable
+        Camera.CFrame = pbSavedCamCFrame
+    end)
+end
+
+-- Disparo automatico (Rage / helpers)
+local function fireOnce()
+    pcall(function()
+        if typeof(mouse1click) == "function" then
+            mouse1click()
+        elseif typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then
+            mouse1press()
+            task.defer(function()
+                pcall(mouse1release)
+            end)
+        end
+    end)
 end
 
 local function restorePointBlank()
     if not pbSavedCFrame then
         pbBusy = false
+        pbSavedCamCFrame = nil
         return
     end
     pcall(function()
         local char = LocalPlayer.Character
         local root = char and char:FindFirstChild("HumanoidRootPart")
-        if root and pbSavedCFrame then root.CFrame = pbSavedCFrame end
+        if root and pbSavedCFrame then
+            root.CFrame = pbSavedCFrame
+        end
+        -- Restaurar camara
+        if pbSavedCamType then
+            Camera.CameraType = pbSavedCamType
+        else
+            Camera.CameraType = Enum.CameraType.Custom
+        end
+        if pbSavedCamCFrame then
+            Camera.CFrame = pbSavedCamCFrame
+        end
     end)
     pbSavedCFrame = nil
+    pbSavedCamCFrame = nil
+    pbSavedCamType = nil
     pbBusy = false
 end
 
 local function rivalsSilentActive()
     if not running or not Settings.SilentAim then return false end
-    -- Silent de verdad: SOLO cuando estás disparando (clic izquierdo)
-    -- No hace falta apuntar (AimKey). No está siempre activo como aimbot.
+    -- Solo al disparar (o siempre en Rage). Sin AimKey.
     if Settings.Rage then return true end
     return isM1Held()
+end
+
+-- Posicion silent para el hook (sin mover camara)
+local function getSilentAimPosition()
+    if not Settings.SilentAim or not running then return nil end
+    if not passHitChance() then return nil end
+    local part = currentTarget
+    if not part or not part.Parent then
+        part = getClosestTarget()
+        currentTarget = part
+    end
+    if not part or not part.Parent then return nil end
+    local aimPos = silentAimPos or getPredictedPosition(part)
+    if not aimPos then aimPos = part.Position end
+    local sp, onScreen = Camera:WorldToViewportPoint(aimPos)
+    if sp.Z <= 0 then return nil end
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+    local maxF = getActiveFOV() * (Settings.Rage and 1.8 or 1.5)
+    if dist > maxF then return nil end
+    if not Settings.Rage and not onScreen then return nil end
+    return aimPos
 end
 
 safeConnect(UserInputService.InputBegan, function(input, gp)
@@ -693,40 +840,22 @@ safeConnect(UserInputService.InputEnded, function(input)
     end
 end)
 
--- Silent Aim REAL:
--- Solo se activa al DISPARAR (clic izquierdo)
--- NO requiere apuntar (sin AimKey / clic derecho)
--- NO está siempre trabando la cámara como un aimbot
+-- =====================================================
+-- SILENT AIM (solo camera al disparar - SIN metatable hook)
+-- El hook de metatable tumba muchos executors antes del menu
+-- =====================================================
 pcall(function()
     RunService:BindToRenderStep("YBTHU_SilentRivals_R3", Enum.RenderPriority.Camera.Value + 1, function()
         if not running or not Settings.SilentAim then return end
-        if not rivalsSilentActive() then return end  -- solo si estás disparando
-        if not passHitChance() then return end
-
-        local part = currentTarget
-        if not part or not part.Parent then
-            part = getClosestTarget()
-            currentTarget = part
-        end
-        if not part or not part.Parent then return end
-
-        local aimPos = silentAimPos or getPredictedPosition(part)
-        if not aimPos then aimPos = part.Position end
-
-        local sp, onScreen = Camera:WorldToViewportPoint(aimPos)
-        if sp.Z <= 0 then return end
-
-        local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-        local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-        local maxF = getActiveFOV() * (Settings.Rage and 1.8 or 1.5)
-        if dist > maxF then return end
-        if not Settings.Rage and not onScreen then return end
-
-        -- Al disparar: redirige la camara al target solo ese momento (silent)
-        local camPos = Camera.CFrame.Position
-        Camera.CFrame = CFrame.lookAt(camPos, aimPos)
+        if not rivalsSilentActive() then return end
+        local ok, aimPos = pcall(getSilentAimPosition)
+        if not ok or not aimPos then return end
+        pcall(function()
+            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, aimPos)
+        end)
     end)
 end)
+print("[YBTHU] Silent Aim: camera al disparar OK")
 
 -- Triggerbot (sin yield)
 local lastTriggerShot = 0
@@ -755,7 +884,13 @@ end)
 -- Aim principal + Hard Guard
 safeConnect(RunService.RenderStepped, function(dt)
     if not running then return end
-    if pbBusy and tick() >= pbUntil then restorePointBlank() end
+    -- Camara fija durante wallbang (body se mueve, tu vista no)
+    if pbBusy then
+        keepPointBlankCamera()
+        if tick() >= pbUntil then
+            restorePointBlank()
+        end
+    end
 
     if not Settings.Aimbot and not Settings.SilentAim and not Settings.Rage then
         currentTarget = nil
@@ -769,9 +904,11 @@ safeConnect(RunService.RenderStepped, function(dt)
 
     local mouseHeld = isAimHeld()
     local mouse1Held = isM1Held()
-    if Settings.Rage and mouse1Held then pcall(doPointBlankWallbang) end
-    -- Silent: rastrea targets siempre (para estar listo), pero la camara solo se mueve al disparar
-    -- Aimbot: solo con AimKey. Rage: siempre.
+    if Settings.Rage and Settings.RageWallbang and mouse1Held then
+        pcall(doPointBlankWallbang)
+    end
+
+    -- Rage: siempre activo. Silent: rastrea. Aimbot: con tecla.
     local shouldAim = Settings.Rage
         or Settings.SilentAim
         or (Settings.Aimbot and (aiming or mouseHeld))
@@ -779,7 +916,7 @@ safeConnect(RunService.RenderStepped, function(dt)
     if not passHitChance() then return end
 
     local now = os.clock()
-    local refresh = Settings.Rage and 0.03 or (Settings.TargetRefresh or 0.055)
+    local refresh = Settings.Rage and 0.018 or (Settings.TargetRefresh or 0.055)
     if now - lastScan >= refresh or not currentTarget or not currentTarget.Parent then
         lastScan = now
         local nextTarget = getClosestTarget()
@@ -802,41 +939,129 @@ safeConnect(RunService.RenderStepped, function(dt)
         smoothedTarget = currentTarget
         smoothedAimPosition = targetPos
     else
-        -- Lerp mas rapido para que siga mejor al personaje
-        smoothedAimPosition = smoothedAimPosition:Lerp(targetPos, math.clamp(dt * 12, 0.15, 0.45))
+        local follow = Settings.Rage and (dt * 14) or (dt * 8)
+        smoothedAimPosition = smoothedAimPosition:Lerp(targetPos, math.clamp(follow, 0.15, 0.42))
     end
     silentAimPos = smoothedAimPosition
 
     if not (Settings.Aimbot or Settings.Rage) then return end
 
-    local alpha
-    if Settings.Rage then alpha = Settings.RageSmoothness
-    elseif Settings.SilentAim then alpha = Settings.SilentSmoothness
-    else alpha = Settings.Smoothness end
-
+    local alpha = Settings.Rage and Settings.RageSmoothness or Settings.Smoothness
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
     local screenPoint, onScreen = Camera:WorldToViewportPoint(smoothedAimPosition)
+    local screenOffset = 9999
     if onScreen and screenPoint.Z > 0 then
-        local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+        local dx = screenPoint.X - screenCenter.X
+        local dy = screenPoint.Y - screenCenter.Y
+        screenOffset = math.sqrt(dx * dx + dy * dy)
+    end
+
+    -- ===================== RAGE =====================
+    if Settings.Rage then
+        -- Durante wallbang: NO mover camara (ya esta congelada)
+        if pbBusy then
+            return
+        end
+        -- Camera lock adaptativo: lejos = rapido, cerca = suave (sin temblor)
+        if Settings.RageCameraLock then
+            pcall(function()
+                local look = CFrame.lookAt(Camera.CFrame.Position, smoothedAimPosition)
+                local t
+                if screenOffset > 120 then
+                    t = 0.92
+                elseif screenOffset > 40 then
+                    t = math.clamp(alpha, 0.55, 0.82)
+                else
+                    t = math.clamp(alpha * 0.7, 0.35, 0.6)
+                end
+                Camera.CFrame = Camera.CFrame:Lerp(look, t)
+            end)
+        else
+            -- Sin camera lock: mouse mas agresivo pero controlado
+            if onScreen and screenPoint.Z > 0 and screenOffset > 2.5 then
+                local dx = screenPoint.X - screenCenter.X
+                local dy = screenPoint.Y - screenCenter.Y
+                local strength = (screenOffset > 80) and 0.55 or 0.28
+                local maxStep = 55
+                local moveX = math.clamp(dx * strength, -maxStep, maxStep)
+                local moveY = math.clamp(dy * strength, -maxStep, maxStep)
+                if typeof(mousemoverel) == "function" then
+                    mousemoverel(moveX, moveY)
+                elseif typeof(Input) == "table" and typeof(Input.MouseMove) == "function" then
+                    Input.MouseMove(moveX, moveY)
+                end
+            end
+        end
+        return
+    end
+
+    -- ===================== AIMBOT NORMAL =====================
+    if onScreen and screenPoint.Z > 0 then
         local deltaX = screenPoint.X - screenCenter.X
         local deltaY = screenPoint.Y - screenCenter.Y
-        local screenOffset = math.sqrt(deltaX * deltaX + deltaY * deltaY)
-        local deadzone = Settings.Rage and 2.0 or Settings.AimDeadzone
+        local deadzone = Settings.AimDeadzone
+
         if screenOffset > deadzone then
-            -- Mas agresivo / pegajoso
-            local frameAlpha = 1 - math.pow(1 - math.clamp(alpha, 0.05, 1), math.clamp(dt * 60, 0.5, 2.0))
-            local accel = Settings.MouseAccel or 1.15
-            local distFactor = math.clamp(screenOffset / 100, 0.55, 1.15)
+            local alphaClamped = math.clamp(alpha, 0.05, 0.95)
+            local frameAlpha = 1 - math.pow(1 - alphaClamped, math.clamp(dt * 60, 0.4, 1.4))
+            local accel = Settings.MouseAccel or 1.0
+
+            local distFactor
+            if screenOffset > 150 then
+                distFactor = 1.0
+            elseif screenOffset > 50 then
+                distFactor = 0.75
+            else
+                distFactor = 0.45
+            end
+
             local strength = frameAlpha * distFactor * accel
-            local maxStep = Settings.Rage and 120 or 48   -- Antes 28, ahora sigue mucho mejor
+            local maxStep = 32
             local moveX = math.clamp(deltaX * strength, -maxStep, maxStep)
             local moveY = math.clamp(deltaY * strength, -maxStep, maxStep)
+
+            local moved = false
             if typeof(mousemoverel) == "function" then
                 mousemoverel(moveX, moveY)
+                moved = true
             elseif typeof(Input) == "table" and typeof(Input.MouseMove) == "function" then
                 Input.MouseMove(moveX, moveY)
+                moved = true
+            elseif typeof(mouse1move) == "function" then
+                pcall(mouse1move, moveX, moveY)
+                moved = true
+            end
+            if not moved then
+                pcall(function()
+                    local look = CFrame.lookAt(Camera.CFrame.Position, smoothedAimPosition)
+                    Camera.CFrame = Camera.CFrame:Lerp(look, math.clamp(alpha * 0.6, 0.15, 0.55))
+                end)
             end
         end
     end
+end)
+
+-- RAGE Auto Shoot: solo cuando el aim esta cerca del target (mas limpio)
+local lastRageShot = 0
+safeConnect(RunService.Heartbeat, function()
+    if not running or not Settings.Rage or not Settings.RageAutoShoot then return end
+    if not currentTarget or not currentTarget.Parent then return end
+    if not passHitChance() then return end
+
+    -- Comprobar alineacion en pantalla
+    if Settings.RageFireOnlyOnTarget then
+        local aimPos = smoothedAimPosition or currentTarget.Position
+        local sp, onScreen = Camera:WorldToViewportPoint(aimPos)
+        if not onScreen or sp.Z <= 0 then return end
+        local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+        local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+        if dist > 45 then return end -- aun no alineado
+    end
+
+    local rate = Settings.AutoFireRate or 0.07
+    if tick() - lastRageShot < rate then return end
+    lastRageShot = tick()
+    fireOnce()
 end)
 
 -- ===================== FOV =====================
@@ -870,8 +1095,11 @@ local function updateFOV()
     fovCircle.Visible = Settings.ShowFOV and (Settings.Aimbot or Settings.SilentAim or Settings.Rage)
     if fovStroke then fovStroke.Color = Settings.Rage and Theme.Rage or Theme.Accent end
 end
-createFOV()
-safeConnect(RunService.RenderStepped, updateFOV)
+pcall(createFOV)
+pcall(function()
+    safeConnect(RunService.RenderStepped, updateFOV)
+end)
+print("[YBTHU] FOV system OK")
 
 -- ===================== ESP =====================
 local function rainbowColor(speed, offset)
@@ -1142,18 +1370,20 @@ local function updateESP(player)
     end
 end
 
-safeConnect(RunService.RenderStepped, function()
-    if not running then return end
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            pcall(updateESP, player)
+pcall(function()
+    safeConnect(RunService.RenderStepped, function()
+        if not running then return end
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                pcall(updateESP, player)
+            end
         end
-    end
+    end)
+    safeConnect(Players.PlayerRemoving, function(player)
+        destroyESP(player)
+    end)
 end)
-
-safeConnect(Players.PlayerRemoving, function(player)
-    destroyESP(player)
-end)
+print("[YBTHU] ESP system OK")
 
 -- ===================== GUN MODS REALES =====================
 local lastCamCFrame = nil
@@ -1209,10 +1439,7 @@ safeConnect(RunService.Heartbeat, function()
                     mouse1click()
                 elseif typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then
                     mouse1press()
-                    task.wait()
-                    mouse1release()
-                elseif typeof(mousemoverel) == "function" then
-                    -- algunos executors solo tienen esto
+                    task.defer(function() pcall(mouse1release) end)
                 end
             end)
         end
@@ -1246,47 +1473,49 @@ safeConnect(RunService.Heartbeat, function()
     end
 end)
 
--- ===================== SKIN CHANGER REAL =====================
+print("[YBTHU] checkpoint: antes de Skin Changer")
+-- ===================== SKIN CHANGER RIVALS (reescrito) =====================
+-- Ruta real: PlayerScripts.Assets.ViewModels
+-- Cases: "Skin Case 2", "Spooky Skin Case", "Festive Skin Case", "Other", etc.
+-- Armas: ViewModels.Weapons.<WeaponName>
+-- Equipado: workspace.ViewModels.FirstPerson["Nombre - Arma"]
 local availableSkins = {}
 local currentSkinIndex = 1
 local originalBackups = {}
+local SKIN_CASE_KEYWORDS = { "skin", "case", "spooky", "festive", "other", "wrap", "charm", "season" }
 
 local function getViewModels()
-    -- Busqueda mas robusta (Rivals cambia la estructura a veces)
-    local candidates = {}
-    local function tryAdd(obj)
-        if obj then table.insert(candidates, obj) end
-    end
+    -- Prioridad 1: ruta oficial de Rivals (sin WaitForChild para no congelar)
+    local ok, vms = pcall(function()
+        local ps = LocalPlayer:FindFirstChild("PlayerScripts")
+        if not ps then return nil end
+        local assets = ps:FindFirstChild("Assets")
+        if not assets then return nil end
+        return assets:FindFirstChild("ViewModels")
+    end)
+    if ok and vms then return vms end
 
+    -- Fallbacks
+    local candidates = {}
     pcall(function()
         local ps = LocalPlayer:FindFirstChild("PlayerScripts")
         if ps then
-            local assets = ps:FindFirstChild("Assets")
-            if assets then tryAdd(assets:FindFirstChild("ViewModels")) end
-            tryAdd(ps:FindFirstChild("ViewModels"))
+            table.insert(candidates, ps:FindFirstChild("ViewModels"))
+            local a = ps:FindFirstChild("Assets")
+            if a then table.insert(candidates, a:FindFirstChild("ViewModels")) end
         end
     end)
-
     pcall(function()
         local rs = game:GetService("ReplicatedStorage")
-        tryAdd(rs:FindFirstChild("ViewModels"))
-        local assets = rs:FindFirstChild("Assets")
-        if assets then tryAdd(assets:FindFirstChild("ViewModels")) end
+        table.insert(candidates, rs:FindFirstChild("ViewModels"))
+        local a = rs:FindFirstChild("Assets")
+        if a then table.insert(candidates, a:FindFirstChild("ViewModels")) end
     end)
-
-    pcall(function()
-        tryAdd(workspace:FindFirstChild("ViewModels"))
-    end)
-
-    for _, vm in ipairs(candidates) do
-        if vm and (vm:IsA("Folder") or vm:IsA("Model") or vm:IsA("Configuration")) then
-            if vm:FindFirstChild("Weapons") or #vm:GetChildren() > 2 then
-                return vm
-            end
-        end
+    for _, c in ipairs(candidates) do
+        if c and (c:FindFirstChild("Weapons") or #c:GetChildren() > 1) then return c end
     end
-    for _, vm in ipairs(candidates) do
-        if vm then return vm end
+    for _, c in ipairs(candidates) do
+        if c then return c end
     end
     return nil
 end
@@ -1302,8 +1531,7 @@ local function hideLocks()
                     gui.Visible = false
                     gui.ImageTransparency = 1
                 end
-            end
-            if gui:IsA("TextLabel") then
+            elseif gui:IsA("TextLabel") then
                 local t = string.lower(gui.Text or "")
                 if t:find("locked") or t:find("bloquead") then
                     gui.Visible = false
@@ -1313,32 +1541,66 @@ local function hideLocks()
     end)
 end
 
+local function isSkinCaseFolder(folder)
+    if not folder then return false end
+    local n = string.lower(folder.Name)
+    if n == "weapons" or n == "originalbackups" then return false end
+    for _, kw in ipairs(SKIN_CASE_KEYWORDS) do
+        if n:find(kw, 1, true) then return true end
+    end
+    -- Si tiene varios hijos modelo/folder, tambien cuenta
+    return #folder:GetChildren() > 0 and not folder:FindFirstChildOfClass("Humanoid")
+end
+
 local function collectSkins()
     availableSkins = {}
     local vms = getViewModels()
     if not vms then
-        print("[YBTHU] SkinChanger: No se encontro ViewModels. Rivals pudo haber cambiado la estructura.")
+        print("[YBTHU] SkinChanger: NO se encontro ViewModels")
+        print("[YBTHU] Esperado: PlayerScripts.Assets.ViewModels")
         return 0
     end
-    print("[YBTHU] SkinChanger: ViewModels encontrado en", vms:GetFullName())
+    print("[YBTHU] SkinChanger: ViewModels =", vms:GetFullName())
+
     pcall(function()
+        -- 1) Carpetas tipo Skin Case
         for _, case in ipairs(vms:GetChildren()) do
-            if case.Name ~= "Weapons" and case.Name ~= "OriginalBackups" then
+            if isSkinCaseFolder(case) then
                 for _, skin in ipairs(case:GetChildren()) do
-                    table.insert(availableSkins, { name = skin.Name, path = skin, case = case.Name })
+                    if skin:IsA("Folder") or skin:IsA("Model") or skin:IsA("Configuration") then
+                        table.insert(availableSkins, {
+                            name = skin.Name,
+                            path = skin,
+                            case = case.Name
+                        })
+                    end
                 end
             end
         end
-        -- Fallback: si no hay "cases", tomar hijos directos como skins
-        if #availableSkins == 0 then
-            for _, child in ipairs(vms:GetChildren()) do
-                if child.Name ~= "Weapons" and child.Name ~= "OriginalBackups" then
-                    table.insert(availableSkins, { name = child.Name, path = child, case = "Root" })
+
+        -- 2) Skins sueltas en la raiz de ViewModels (no Weapons)
+        local weaponsFolder = vms:FindFirstChild("Weapons")
+        for _, child in ipairs(vms:GetChildren()) do
+            if child.Name ~= "Weapons" and child.Name ~= "OriginalBackups" and not isSkinCaseFolder(child) then
+                if child:IsA("Folder") or child:IsA("Model") then
+                    -- Evitar duplicar armas base
+                    local isBaseWeapon = weaponsFolder and weaponsFolder:FindFirstChild(child.Name)
+                    if not isBaseWeapon then
+                        table.insert(availableSkins, {
+                            name = child.Name,
+                            path = child,
+                            case = "Root"
+                        })
+                    end
                 end
             end
         end
     end)
+
     print("[YBTHU] SkinChanger: skins encontradas =", #availableSkins)
+    if #availableSkins > 0 then
+        print("[YBTHU] Ejemplos:", availableSkins[1].name, availableSkins[math.min(2, #availableSkins)].name)
+    end
     return #availableSkins
 end
 
@@ -1357,9 +1619,11 @@ local function backupWeapon(weaponName)
             backupFolder.Name = "OriginalBackups"
             backupFolder.Parent = vms
         end
-        local clone = weapon:Clone()
-        clone.Name = weaponName
-        clone.Parent = backupFolder
+        if not backupFolder:FindFirstChild(weaponName) then
+            local clone = weapon:Clone()
+            clone.Name = weaponName
+            clone.Parent = backupFolder
+        end
         originalBackups[weaponName] = true
     end)
 end
@@ -1368,39 +1632,66 @@ local function applySkinToWeapon(skinData, weaponName)
     if not skinData or not weaponName then return false end
     local vms = getViewModels()
     if not vms then return false end
+
+    -- Preferir Weapons folder; si no, buscar en raiz
+    local weapon = nil
     local weapons = vms:FindFirstChild("Weapons")
-    if not weapons then return false end
-    local weapon = weapons:FindFirstChild(weaponName)
-    if not weapon then return false end
+    if weapons then
+        weapon = weapons:FindFirstChild(weaponName)
+    end
+    if not weapon then
+        weapon = vms:FindFirstChild(weaponName)
+    end
+    if not weapon then
+        print("[YBTHU] SkinChanger: arma no encontrada:", weaponName)
+        return false
+    end
+
     backupWeapon(weaponName)
-    local ok = pcall(function()
+
+    local ok, err = pcall(function()
         weapon:ClearAllChildren()
         for _, child in ipairs(skinData.path:GetChildren()) do
-            child:Clone().Parent = weapon
+            local c = child:Clone()
+            c.Parent = weapon
         end
     end)
+    if not ok then
+        print("[YBTHU] SkinChanger error al aplicar:", err)
+    end
     return ok
 end
 
 local function getCurrentEquippedWeapon()
     local name = nil
+    -- Metodo principal: workspace.ViewModels.FirstPerson["PlayerName - Weapon"]
     pcall(function()
         local wsv = workspace:FindFirstChild("ViewModels")
         local firstPerson = wsv and wsv:FindFirstChild("FirstPerson")
         if firstPerson then
             for _, vm in ipairs(firstPerson:GetChildren()) do
-                if vm:IsA("Model") and string.find(vm.Name, LocalPlayer.Name, 1, true) then
+                if typeof(vm.Name) == "string" and string.find(vm.Name, LocalPlayer.Name, 1, true) then
+                    -- Formato: "Nombre - Arma" o "Nombre - Arma - algo"
                     local parts = string.split(vm.Name, " - ")
-                    if #parts >= 2 then name = parts[2] break end
+                    if #parts >= 2 then
+                        name = parts[2]
+                        break
+                    end
+                    -- Alternativa con match
+                    local m = string.match(vm.Name, "^" .. LocalPlayer.Name .. "%s*%-%s*(.+)$")
+                    if m then name = m break end
                 end
             end
         end
-        if not name then
+    end)
+    -- Fallback: Tool en character
+    if not name then
+        pcall(function()
             local char = LocalPlayer.Character
             local tool = char and char:FindFirstChildOfClass("Tool")
             if tool then name = tool.Name end
-        end
-    end)
+        end)
+    end
     return name
 end
 
@@ -1412,7 +1703,7 @@ local function applyNextSkin()
     local count = #availableSkins
     if count == 0 then count = collectSkins() end
     if count == 0 then
-        notify("YBTHU", "No se encontraron skins", 3)
+        notify("YBTHU", "No se encontraron skins (mira consola)", 3)
         return
     end
     currentSkinIndex = (currentSkinIndex % count) + 1
@@ -1421,11 +1712,13 @@ local function applyNextSkin()
     if weaponName and skin then
         if applySkinToWeapon(skin, weaponName) then
             notify("YBTHU", "Skin: " .. (skin.name or "?") .. " → " .. weaponName, 2)
+            print("[YBTHU] Aplicada", skin.name, "de", skin.case, "en", weaponName)
         else
             notify("YBTHU", "No se pudo aplicar la skin", 2)
         end
     else
         notify("YBTHU", "Equipa un arma primero", 2)
+        print("[YBTHU] Arma equipada detectada:", tostring(weaponName))
     end
 end
 
@@ -1433,13 +1726,18 @@ local function setSkinChanger(on)
     Settings.SkinChanger = on
     if on then
         hideLocks()
-        collectSkins()
+        local n = collectSkins()
         if unlockConnection then pcall(function() unlockConnection:Disconnect() end) end
+        local lastHide = 0
         unlockConnection = RunService.Heartbeat:Connect(function()
-            if Settings.SkinChanger then hideLocks() end
+            if not Settings.SkinChanger then return end
+            local now = tick()
+            if now - lastHide < 0.5 then return end -- no escanear cada frame (causaba lag/crash)
+            lastHide = now
+            hideLocks()
         end)
         table.insert(allConnections, unlockConnection)
-        notify("YBTHU", "Skin ON · candados ocultos · Siguiente Skin / tecla =", 3)
+        notify("YBTHU", "Skin ON · " .. tostring(n) .. " skins · tecla = para ciclar", 3)
     else
         if unlockConnection then pcall(function() unlockConnection:Disconnect() end) end
         unlockConnection = nil
@@ -1473,8 +1771,26 @@ end
 
 buildUI = function()
     local parent = getGuiParent()
-    if not parent then return end
+    if not parent then
+        warn("[YBTHU] No se pudo encontrar parent para el GUI (CoreGui/PlayerGui)")
+        pcall(function()
+            StarterGui:SetCore("SendNotification", {
+                Title = "YBTHU",
+                Text = "Error: no se pudo crear el menu (GUI parent)",
+                Duration = 8
+            })
+        end)
+        return
+    end
     if screenGuiRef then pcall(function() screenGuiRef:Destroy() end) end
+    -- Quitar menu de emergencia si existe
+    pcall(function()
+        local parent = getGuiParent()
+        if parent then
+            local em = parent:FindFirstChild("YBTHU_EMERGENCY")
+            if em then em:Destroy() end
+        end
+    end)
     toggleRefs = {}
     sliderRefs = {}
 
@@ -1483,8 +1799,22 @@ buildUI = function()
     gui.ResetOnSpawn = false
     gui.IgnoreGuiInset = true
     gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    gui.Parent = parent
+    gui.DisplayOrder = 999999
+    gui.Enabled = true
+    pcall(function() gui.Parent = parent end)
+    if not gui.Parent then
+        -- ultimo intento: PlayerGui
+        pcall(function()
+            local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+            if pg then gui.Parent = pg end
+        end)
+    end
+    if not gui.Parent then
+        warn("[YBTHU] ScreenGui no se pudo parentar")
+        return
+    end
     screenGuiRef = gui
+    print("[YBTHU] Menu parent =", gui.Parent:GetFullName())
 
     local window = Instance.new("Frame")
     window.Name = "Main"
@@ -1494,7 +1824,8 @@ buildUI = function()
     window.BorderSizePixel = 0
     window.Active = true
     window.ClipsDescendants = true
-    window.Visible = Settings.Visible
+    window.Visible = true
+    Settings.Visible = true
     window.Parent = gui
     Instance.new("UICorner", window).CornerRadius = UDim.new(0, 12)
     local stroke = Instance.new("UIStroke")
@@ -1519,7 +1850,7 @@ buildUI = function()
     title.Size = UDim2.new(1, -60, 0, 28)
     title.Position = UDim2.new(0, 14, 0, 6)
     title.BackgroundTransparency = 1
-    title.Text = "YBTHU  ·  BETA R3.3 FIXED"
+    title.Text = "YBTHU  ·  BETA R3.4 RAGE"
     title.TextColor3 = Theme.Accent
     title.Font = Enum.Font.GothamBold
     title.TextSize = 16
@@ -1855,25 +2186,28 @@ buildUI = function()
     makeToggle(combatContent, "Aim", "Aimbot", 2)
     makeToggle(combatContent, "Silent", "SilentAim", 3)
     makeToggle(combatContent, "Rage", "Rage", 4, Theme.Rage)
-    makeToggle(combatContent, "Trigger", "Triggerbot", 5)
-    makeToggle(combatContent, "Sticky", "StickyAim", 6)
-    makeToggle(combatContent, "Wall", "WallCheck", 7)
-    makeToggle(combatContent, "Team", "IgnoreTeam", 8)
-    makeToggle(combatContent, "Friends", "IgnoreFriends", 8.5)
-    makeToggle(combatContent, "Fov", "ShowFOV", 9)
+    makeToggle(combatContent, "RageAuto", "RageAutoShoot", 5, Theme.Rage)
+    makeToggle(combatContent, "RageWB", "RageWallbang", 6, Theme.Rage)
+    makeToggle(combatContent, "RageCam", "RageCameraLock", 7, Theme.Rage)
+    makeToggle(combatContent, "Trigger", "Triggerbot", 8)
+    makeToggle(combatContent, "Sticky", "StickyAim", 9)
+    makeToggle(combatContent, "Wall", "WallCheck", 10)
+    makeToggle(combatContent, "Team", "IgnoreTeam", 11)
+    makeToggle(combatContent, "Friends", "IgnoreFriends", 12)
+    makeToggle(combatContent, "Fov", "ShowFOV", 13)
 
-    makeSection(combatContent, "SLIDERS", 10)
-    makeSlider(combatContent, "FOVSize", "FOV", 50, 700, 11, 0)
-    makeSlider(combatContent, "Smooth", "Smoothness", 0.05, 1, 12, 2)
-    makeSlider(combatContent, "Pred", "Prediction", 0, 0.4, 13, 2)
-    makeSlider(combatContent, "Hit", "HitChance", 1, 100, 14, 0)
-    makeSlider(combatContent, "MaxDist", "MaxDistance", 50, 1500, 15, 0)
+    makeSection(combatContent, "SLIDERS", 20)
+    makeSlider(combatContent, "FOVSize", "FOV", 50, 700, 21, 0)
+    makeSlider(combatContent, "Smooth", "Smoothness", 0.05, 1, 22, 2)
+    makeSlider(combatContent, "Pred", "Prediction", 0, 0.4, 23, 2)
+    makeSlider(combatContent, "Hit", "HitChance", 1, 100, 24, 0)
+    makeSlider(combatContent, "MaxDist", "MaxDistance", 50, 1500, 25, 0)
 
-    makeSection(combatContent, "TARGET", 16)
+    makeSection(combatContent, "TARGET", 26)
     local partRow = Instance.new("Frame")
     partRow.Size = UDim2.new(1, 0, 0, 36)
     partRow.BackgroundColor3 = Theme.Card
-    partRow.LayoutOrder = 17
+    partRow.LayoutOrder = 27
     partRow.Parent = combatContent
     Instance.new("UICorner", partRow).CornerRadius = UDim.new(0, 8)
     local partLabel = Instance.new("TextLabel")
@@ -2159,7 +2493,7 @@ buildUI = function()
     credit.Parent = miscContent
 
     switchTab("Combat")
-    print("[YBTHU BETA R3.3 FIXED] UI cargada")
+    print("[YBTHU BETA R3.4 RAGE] UI cargada")
 end
 
 refreshUIFromSettings = function()
@@ -2167,13 +2501,24 @@ refreshUIFromSettings = function()
     for _, fn in pairs(sliderRefs) do pcall(fn) end
 end
 
-buildUI()
+local uiOk, uiErr = pcall(buildUI)
+if not uiOk then
+    warn("[YBTHU] Error al crear UI:", uiErr)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = "YBTHU ERROR UI",
+            Text = tostring(uiErr),
+            Duration = 10
+        })
+    end)
+end
 
-print("[YBTHU BETA R3.3 FULL FIXED] Cargado correctamente")
+print("[YBTHU BETA R3.4 RAGE] Cargado correctamente")
 print("[YBTHU] Insert = menú  |  = = siguiente skin")
 print("[YBTHU] Drawing API: " .. (drawingAvailable and "SI" or "NO (solo Chams)"))
 print("[YBTHU] mousemoverel: " .. (typeof(mousemoverel) == "function" and "SI" or "NO"))
 print("[YBTHU] IgnoreFriends = ON (ya no se pega a tus amigos)")
-print("[YBTHU] IgnoreTeam mejorado (varios metodos de deteccion)")
-print("[YBTHU] Aimbot mas pegajoso (Smoothness 0.82)")
-print("[YBTHU] Silent Aim: solo al disparar (sin apuntar, no es aimbot constante)")
+print("[YBTHU] IgnoreTeam = OFF por defecto (en Rivals filtraba a todos)")
+print("[YBTHU] Aimbot mejorado: mas preciso, mejor prediccion, menos overshoot")
+print("[YBTHU] Silent Aim: camera al disparar + hook Raycast opcional")
+print("[YBTHU] RAGE profesional: AutoShoot + CameraLock + Wallbang + FOV 800")
