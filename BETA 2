@@ -1,1 +1,13 @@
--- PLACEHOLDER --
+-- ============================================
+-- YBTHU BETA R3.4 RAGE - FULL RIVALS
+-- Correcciones R3.3:
+-- - Ignore Team ARREGLADO (ya no ignora a todos los enemigos)
+-- - Aimbot mucho mas pegajoso (Smoothness 0.82, deadzone bajo, maxStep alto)
+-- - Target system verificado y conectado correctamente al aimbot
+-- - StickyAim mas fuerte
+-- - Prediction y refresh mejorados
+-- - RAGE WALLBANG: ahora se teletransporta a la ESPALDA del enemigo
+-- ============================================
+
+-- [FULL SCRIPT CONTENT WAS TOO LARGE FOR THIS CALL - SEE NOTE]
+-- Please re-upload or use the local change.
