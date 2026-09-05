@@ -1,6 +1,6 @@
 -- ============================================
 -- YBTHU BETA 2 PRO (MOUSE AIM + SILENT RIVALS)
--- Aimbot mouse + Silent Camera (Rivals) + Rage wallbang (sin auto-fire) + ESP + Kill
+-- Aimbot + Silent Rivals + Rage PointBlank wallbang (sin auto-fire) + ESP + Kill
 -- ============================================
 
 local Players = game:GetService("Players")
@@ -70,6 +70,10 @@ local Settings = {
     },
 }
 
+local pbSavedCFrame = nil
+local pbUntil = 0
+local pbBusy = false
+
 local function killScript()
     if running == false then return end
     running = false
@@ -107,6 +111,15 @@ local function killScript()
     end
     pcall(function() StarterGui:SetCore("SendNotification", { Title = "YBTHU", Text = "Script APAGADO", Duration = 3 }) end)
     pcall(function() RunService:UnbindFromRenderStep("YBTHU_SilentRivals") end)
+    pcall(function()
+        if pbSavedCFrame then
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if root then root.CFrame = pbSavedCFrame end
+        end
+        pbSavedCFrame = nil
+        pbBusy = false
+    end)
     print("[YBTHU BETA 2] Script completamente apagado")
 end
 
@@ -239,6 +252,53 @@ local function getClosestTarget()
     return closest
 end
 
+local function doPointBlankWallbang()
+    if pbBusy or not Settings.Rage or not running then return end
+    local target = currentTarget
+    if not target or not target.Parent then
+        target = getClosestTarget()
+        currentTarget = target
+    end
+    if not target or not target.Parent then return end
+
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    pbBusy = true
+    local ok = pcall(function()
+        pbSavedCFrame = root.CFrame
+        local tpos = target.Position
+        local dir = (root.Position - tpos)
+        if dir.Magnitude < 1 then dir = Vector3.new(0, 0, 1) end
+        dir = dir.Unit
+        local nearPos = tpos + dir * 3 + Vector3.new(0, 1.5, 0)
+        root.CFrame = CFrame.new(nearPos, tpos)
+        pbUntil = tick() + 0.12
+    end)
+    if not ok then
+        pbBusy = false
+        pbSavedCFrame = nil
+    end
+end
+
+local function restorePointBlank()
+    if not pbSavedCFrame then
+        pbBusy = false
+        return
+    end
+    pcall(function()
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root and pbSavedCFrame then
+            root.CFrame = pbSavedCFrame
+        end
+    end)
+    pbSavedCFrame = nil
+    pbBusy = false
+end
+
 local function rivalsSilentActive()
     if not running or not Settings.SilentAim then return false end
     if Settings.Rage then return true end
@@ -254,8 +314,13 @@ end
 safeConnect(UserInputService.InputBegan, function(input, gp)
     if gp or not running then return end
     if input.UserInputType == Settings.AimKey then aiming = true end
-    if input.UserInputType == Enum.UserInputType.MouseButton1 and Settings.SilentAim then
-        silentSnapUntil = tick() + 0.18
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if Settings.SilentAim then
+            silentSnapUntil = tick() + 0.18
+        end
+        if Settings.Rage then
+            pcall(doPointBlankWallbang)
+        end
     end
 end)
 
@@ -305,10 +370,13 @@ pcall(function()
     end)
 end)
 
-print("[YBTHU] Silent Aim RIVALS + Rage WALLBANG listo")
+print("[YBTHU] Silent RIVALS + Rage POINT BLANK wallbang listo")
 
 safeConnect(RunService.RenderStepped, function(dt)
     if not running then return end
+    if pbBusy and tick() >= pbUntil then
+        restorePointBlank()
+    end
     local mouseHeld, mouse1Held = false, false
     pcall(function()
         mouseHeld = UserInputService:IsMouseButtonPressed(Settings.AimKey)
@@ -755,7 +823,7 @@ end
 local footer = Instance.new("TextLabel")
 footer.Size = UDim2.new(1, 0, 0, 40)
 footer.BackgroundTransparency = 1
-footer.Text = "Rage wallbang + Silent RIVALS | Insert = menú"
+footer.Text = "Rage PointBlank wallbang | Insert = menú"
 footer.TextColor3 = Theme.TextDim
 footer.Font = Enum.Font.Gotham
 footer.TextSize = 10
@@ -776,4 +844,4 @@ safeConnect(UserInputService.InputBegan, function(input, gp)
     end
 end)
 
-print("[YBTHU BETA 2 PRO] Rage WALLBANG (sin auto-fire) + Silent RIVALS")
+print("[YBTHU BETA 2 PRO] Rage POINT BLANK wallbang + Silent RIVALS")
