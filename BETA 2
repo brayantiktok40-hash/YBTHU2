@@ -1,6 +1,6 @@
 -- ============================================
 -- YBTHU BETA 2 PRO (MOUSE AIM + SILENT RIVALS)
--- Aimbot mouse + Silent Camera (Rivals) + Rage + ESP + Kill
+-- Aimbot mouse + Silent Camera (Rivals) + Rage (sin auto-fire) + ESP + Kill
 -- ============================================
 
 local Players = game:GetService("Players")
@@ -190,7 +190,6 @@ end
 local currentTarget, stickyTarget = nil, nil
 local silentAimPos = nil
 local aiming = false
-local lastAutoFire = 0
 local lastScan = 0
 local targetRefreshRate = Settings.TargetRefresh or 0.055
 local smoothedAimPosition = nil
@@ -238,16 +237,6 @@ local function getClosestTarget()
     end
     stickyTarget = closest
     return closest
-end
-
-local function doAutoFire()
-    local now = tick()
-    if now - lastAutoFire < Settings.AutoFireRate then return end
-    lastAutoFire = now
-    pcall(function()
-        if typeof(mouse1click) == "function" then mouse1click() return end
-        if typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then mouse1press() mouse1release() end
-    end)
 end
 
 -- ============================================
@@ -360,7 +349,6 @@ safeConnect(RunService.RenderStepped, function(dt)
     elseif Settings.SilentAim then alpha = Settings.SilentSmoothness
     else alpha = Settings.Smoothness end
 
-    -- Solo Aimbot/Rage mueven mouse; Silent Rivals usa Camera.CFrame
     if Settings.Aimbot or Settings.Rage then
         local screenPoint, onScreen = Camera:WorldToViewportPoint(smoothedAimPosition)
         if onScreen and screenPoint.Z > 0 then
@@ -386,8 +374,7 @@ safeConnect(RunService.RenderStepped, function(dt)
             end
         end
     end
-
-    if Settings.Rage then doAutoFire() end
+    -- Rage sin auto-fire: tu disparas manualmente
 end)
 
 local fovGui, fovCircle, fovStroke
@@ -762,7 +749,7 @@ end
 local footer = Instance.new("TextLabel")
 footer.Size = UDim2.new(1, 0, 0, 40)
 footer.BackgroundTransparency = 1
-footer.Text = "Silent RIVALS + Aim mouse | Insert = menú"
+footer.Text = "Silent RIVALS + Rage sin auto-fire | Insert = menú"
 footer.TextColor3 = Theme.TextDim
 footer.Font = Enum.Font.Gotham
 footer.TextSize = 10
@@ -783,4 +770,4 @@ safeConnect(UserInputService.InputBegan, function(input, gp)
     end
 end)
 
-print("[YBTHU BETA 2 PRO] Mouse Aim + Silent RIVALS - APAGAR listo")
+print("[YBTHU BETA 2 PRO] Mouse Aim + Silent RIVALS + Rage sin auto-fire")
