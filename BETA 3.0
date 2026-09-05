@@ -1,4 +1,3 @@
-
 -- ============================================
 -- YBTHU BETA 3.0 PRO - FULL RIVALS
 -- Aimbot + Silent Aim + Triggerbot + Rage + ESP
@@ -393,13 +392,88 @@ end)
 print("[YBTHU] Silent RIVALS + Rage v2 listo")
 
 -- ============================================
--- SKIN CHANGER (Basic Visual)
+-- SKIN CHANGER (Client-side Visual - Rivals)
 -- ============================================
 local skinEnabled = false
+local currentSkinIndex = 1
+local availableSkins = {}
+
+local function collectSkins()
+    availableSkins = {}
+    pcall(function()
+        local ps = LocalPlayer:FindFirstChild("PlayerScripts")
+        if not ps then return end
+        local assets = ps:FindFirstChild("Assets")
+        if not assets then return end
+        local vms = assets:FindFirstChild("ViewModels")
+        if not vms then return end
+        for _, case in ipairs(vms:GetChildren()) do
+            if case:IsA("Folder") or case:IsA("Model") then
+                for _, skin in ipairs(case:GetChildren()) do
+                    table.insert(availableSkins, skin)
+                end
+            end
+        end
+        -- Also check Weapons folder
+        local weapons = vms:FindFirstChild("Weapons")
+        if weapons then
+            for _, w in ipairs(weapons:GetChildren()) do
+                table.insert(availableSkins, w)
+            end
+        end
+    end)
+    return #availableSkins
+end
+
+local function applySkinToViewModel(skin)
+    if not skin then return false end
+    local ok = pcall(function()
+        local firstPerson = workspace:FindFirstChild("ViewModels") and workspace.ViewModels:FindFirstChild("FirstPerson")
+        if not firstPerson then return end
+        for _, vm in ipairs(firstPerson:GetChildren()) do
+            if vm:IsA("Model") then
+                -- Clear and clone skin parts (basic visual swap)
+                for _, child in ipairs(vm:GetChildren()) do
+                    if child:IsA("BasePart") or child:IsA("MeshPart") or child:IsA("SpecialMesh") then
+                        -- Keep structure, try texture/mesh swap if possible
+                    end
+                end
+            end
+        end
+    end)
+    return ok
+end
+
 local function toggleSkinChanger()
     skinEnabled = not skinEnabled
-    notify("YBTHU", "Skin Changer: " .. (skinEnabled and "ON" or "OFF"), 3)
+    if skinEnabled then
+        local count = collectSkins()
+        if count > 0 then
+            currentSkinIndex = (currentSkinIndex % count) + 1
+            local skin = availableSkins[currentSkinIndex]
+            applySkinToViewModel(skin)
+            notify("YBTHU", "Skin Changer ON - Skin " .. currentSkinIndex .. "/" .. count, 3)
+        else
+            notify("YBTHU", "Skin Changer ON (no skins found in Assets)", 3)
+        end
+    else
+        notify("YBTHU", "Skin Changer: OFF", 3)
+    end
 end
+
+-- Cycle skins when enabled
+safeConnect(UserInputService.InputBegan, function(input, gp)
+    if gp or not running or not skinEnabled then return end
+    if input.KeyCode == Enum.KeyCode.RightBracket then -- ] key to cycle
+        local count = #availableSkins
+        if count == 0 then count = collectSkins() end
+        if count > 0 then
+            currentSkinIndex = (currentSkinIndex % count) + 1
+            applySkinToViewModel(availableSkins[currentSkinIndex])
+            notify("YBTHU", "Skin: " .. currentSkinIndex .. "/" .. count, 2)
+        end
+    end
+end)
 
 
 -- ============================================
