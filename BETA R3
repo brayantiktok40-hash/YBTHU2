@@ -1,15 +1,11 @@
 -- ============================================
--- YBTHU BETA R3.2 FULL FIXED - FULL RIVALS
--- Correcciones R3.2 (verificacion completa):
--- - TargetRefresh dinamico
--- - Limpieza Drawing + Highlights reforzada
--- - Silent Aim mas estable
--- - Camera siempre actualizada
--- - Skin Changer: busqueda mucho mas robusta de ViewModels
--- - Skin Changer: mejor feedback en consola
--- - NoRecoil: correccion vertical mas fuerte
--- - RapidFire: mejor deteccion de funciones del executor
--- - Mas prints de diagnostico al cargar
+-- YBTHU BETA R3.3 FULL FIXED - FULL RIVALS
+-- Correcciones R3.3:
+-- - Ignore Team ARREGLADO (ya no ignora a todos los enemigos)
+-- - Aimbot mucho mas pegajoso (Smoothness 0.82, deadzone bajo, maxStep alto)
+-- - Target system verificado y conectado correctamente al aimbot
+-- - StickyAim mas fuerte
+-- - Prediction y refresh mejorados
 -- ============================================
 
 local Players = game:GetService("Players")
@@ -72,15 +68,15 @@ local Settings = {
     ShowFOV = true,
     MaxDistance = 500,
     TargetPart = "Head",
-    Smoothness = 0.38,
-    AimDeadzone = 5.0,
-    SilentSmoothness = 0.70,
-    RageSmoothness = 0.98,
-    Prediction = 0.12,
-    MouseAccel = 0.95,
-    TargetRefresh = 0.055,
+    Smoothness = 0.82,          -- Antes 0.38 (muy suave). Ahora mas pegajoso
+    AimDeadzone = 2.5,          -- Antes 5.0. Menos deadzone = sigue mejor
+    SilentSmoothness = 0.88,
+    RageSmoothness = 0.99,
+    Prediction = 0.14,
+    MouseAccel = 1.15,          -- Antes 0.95. Mas agresivo
+    TargetRefresh = 0.04,       -- Refresco de target mas rapido
     WallCheck = false,
-    IgnoreTeam = true,
+    IgnoreTeam = false,         -- Antes true. Causaba que ignorara a TODOS en Rivals
     StickyAim = true,
     HitChance = 100,
     AutoFireRate = 0.10,
@@ -126,7 +122,7 @@ local Settings = {
     },
 }
 
-local CONFIG_NAME = "YBTHU_BETA_R3_2_Config.json"
+local CONFIG_NAME = "YBTHU_BETA_R3_3_Config.json"
 local toggleRefs = {}
 local sliderRefs = {}
 local uiLabelRefs = {}
@@ -333,14 +329,14 @@ local function killScript()
     if Runtime.__YBTHU_R3_KILL == killScript then
         Runtime.__YBTHU_R3_KILL = nil
     end
-    print("[YBTHU BETA R3.2 FIXED] Script apagado")
+    print("[YBTHU BETA R3.3 FIXED] Script apagado")
 end
 
 Runtime.__YBTHU_R3_KILL = killScript
 
 local Texts = {
     ES = {
-        Title = "YBTHU", Sub = "BETA R3.2 FIXED",
+        Title = "YBTHU", Sub = "BETA R3.3 FIXED",
         Combat = "COMBATE", Visuals = "VISUALES", GunMods = "GUN MODS", Misc = "AJUSTES",
         Aim = "Aimbot", Silent = "Silent Aim", Trigger = "Triggerbot", Rage = "Rage Aim",
         Esp = "ESP", Skin = "Skin Changer", Fov = "FOV Circle", Part = "Target Part",
@@ -356,7 +352,7 @@ local Texts = {
         MaxDist = "Max Distance", AntiFlash = "Anti Flash", AntiSmoke = "Anti Smoke"
     },
     EN = {
-        Title = "YBTHU", Sub = "BETA R3.2 FIXED",
+        Title = "YBTHU", Sub = "BETA R3.3 FIXED",
         Combat = "COMBAT", Visuals = "VISUALS", GunMods = "GUN MODS", Misc = "SETTINGS",
         Aim = "Aimbot", Silent = "Silent Aim", Trigger = "Triggerbot", Rage = "Rage Aim",
         Esp = "ESP", Skin = "Skin Changer", Fov = "FOV Circle", Part = "Target Part",
@@ -455,11 +451,30 @@ end
 
 local function isValidPlayer(player)
     if player == LocalPlayer then return false end
+    if not isAlive(player.Character) then return false end
+
+    -- Ignore Team: solo filtrar si AMBOS tienen Team real y son iguales.
+    -- En Rivals a veces todos comparten TeamColor y se bloqueaba a TODOS los enemigos.
     if Settings.IgnoreTeam then
-        if player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then return false end
-        if player.TeamColor and LocalPlayer.TeamColor and player.TeamColor == LocalPlayer.TeamColor then return false end
+        local myTeam = LocalPlayer.Team
+        local theirTeam = player.Team
+        if myTeam ~= nil and theirTeam ~= nil and myTeam == theirTeam then
+            return false
+        end
+        -- Fallback TeamColor solo si no hay Team objects
+        if myTeam == nil and theirTeam == nil then
+            local myTC = LocalPlayer.TeamColor
+            local theirTC = player.TeamColor
+            if myTC and theirTC and myTC == theirTC then
+                local colorName = tostring(myTC)
+                -- No filtrar colores "neutrales" comunes de FFA
+                if colorName ~= "White" and colorName ~= "Institutional white" and colorName ~= "Medium stone grey" then
+                    return false
+                end
+            end
+        end
     end
-    return isAlive(player.Character)
+    return true
 end
 
 local function hasLineOfSight(fromPos, toPart, character)
@@ -521,7 +536,7 @@ local function getClosestTarget()
             local sp, onScreen = Camera:WorldToViewportPoint(stickyTarget.Position)
             if onScreen and sp.Z > 0 then
                 local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                local stickyMul = Settings.Rage and 1.8 or 1.35
+                local stickyMul = Settings.Rage and 2.2 or 1.7   -- Mas pegajoso
                 if dist <= fov * stickyMul and hasLineOfSight(camPos, stickyTarget, char) then
                     return stickyTarget
                 end
@@ -747,7 +762,8 @@ safeConnect(RunService.RenderStepped, function(dt)
         smoothedTarget = currentTarget
         smoothedAimPosition = targetPos
     else
-        smoothedAimPosition = smoothedAimPosition:Lerp(targetPos, math.clamp(dt * 7, 0.08, 0.28))
+        -- Lerp mas rapido para que siga mejor al personaje
+        smoothedAimPosition = smoothedAimPosition:Lerp(targetPos, math.clamp(dt * 12, 0.15, 0.45))
     end
     silentAimPos = smoothedAimPosition
 
@@ -766,11 +782,12 @@ safeConnect(RunService.RenderStepped, function(dt)
         local screenOffset = math.sqrt(deltaX * deltaX + deltaY * deltaY)
         local deadzone = Settings.Rage and 2.0 or Settings.AimDeadzone
         if screenOffset > deadzone then
-            local frameAlpha = 1 - math.pow(1 - math.clamp(alpha, 0.05, 1), math.clamp(dt * 60, 0.35, 1.6))
-            local accel = Settings.MouseAccel or 0.95
-            local distFactor = math.clamp(screenOffset / 140, 0.40, 1.05)
+            -- Mas agresivo / pegajoso
+            local frameAlpha = 1 - math.pow(1 - math.clamp(alpha, 0.05, 1), math.clamp(dt * 60, 0.5, 2.0))
+            local accel = Settings.MouseAccel or 1.15
+            local distFactor = math.clamp(screenOffset / 100, 0.55, 1.15)
             local strength = frameAlpha * distFactor * accel
-            local maxStep = Settings.Rage and 90 or 28
+            local maxStep = Settings.Rage and 120 or 48   -- Antes 28, ahora sigue mucho mejor
             local moveX = math.clamp(deltaX * strength, -maxStep, maxStep)
             local moveY = math.clamp(deltaY * strength, -maxStep, maxStep)
             if typeof(mousemoverel) == "function" then
@@ -1462,7 +1479,7 @@ buildUI = function()
     title.Size = UDim2.new(1, -60, 0, 28)
     title.Position = UDim2.new(0, 14, 0, 6)
     title.BackgroundTransparency = 1
-    title.Text = "YBTHU  ·  BETA R3.2 FIXED"
+    title.Text = "YBTHU  ·  BETA R3.3 FIXED"
     title.TextColor3 = Theme.Accent
     title.Font = Enum.Font.GothamBold
     title.TextSize = 16
@@ -2101,7 +2118,7 @@ buildUI = function()
     credit.Parent = miscContent
 
     switchTab("Combat")
-    print("[YBTHU BETA R3.2 FIXED] UI cargada")
+    print("[YBTHU BETA R3.3 FIXED] UI cargada")
 end
 
 refreshUIFromSettings = function()
@@ -2111,10 +2128,10 @@ end
 
 buildUI()
 
-print("[YBTHU BETA R3.2 FULL FIXED] Cargado correctamente")
+print("[YBTHU BETA R3.3 FULL FIXED] Cargado correctamente")
 print("[YBTHU] Insert = menú  |  = = siguiente skin")
 print("[YBTHU] Drawing API: " .. (drawingAvailable and "SI" or "NO (solo Chams)"))
 print("[YBTHU] mousemoverel: " .. (typeof(mousemoverel) == "function" and "SI" or "NO"))
 print("[YBTHU] mouse1click: " .. (typeof(mouse1click) == "function" and "SI" or "NO"))
-print("[YBTHU] writefile: " .. (typeof(writefile) == "function" and "SI" or "NO"))
-print("[YBTHU] Si Skin Changer no encuentra skins, mira la consola para ver la ruta")
+print("[YBTHU] IgnoreTeam por defecto = OFF (ya no bloquea enemigos)")
+print("[YBTHU] Aimbot mas pegajoso (Smoothness 0.82)")
