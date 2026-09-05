@@ -1,6 +1,6 @@
 -- ============================================
 -- YBTHU BETA 2 PRO (MOUSE AIM + SILENT RIVALS)
--- Aimbot mouse + Silent Camera (Rivals) + Rage (sin auto-fire) + ESP + Kill
+-- Aimbot mouse + Silent Camera (Rivals) + Rage wallbang (sin auto-fire) + ESP + Kill
 -- ============================================
 
 local Players = game:GetService("Players")
@@ -32,7 +32,7 @@ local Settings = {
     Rage = false,
     AimKey = Enum.UserInputType.MouseButton2,
     FOV = 340,
-    RageFOV = 450,
+    RageFOV = 500,
     ShowFOV = true,
     MaxDistance = 500,
     TargetPart = "Head",
@@ -239,9 +239,6 @@ local function getClosestTarget()
     return closest
 end
 
--- ============================================
--- SILENT AIM RIVALS (Camera CFrame)
--- ============================================
 local function rivalsSilentActive()
     if not running or not Settings.SilentAim then return false end
     if Settings.Rage then return true end
@@ -291,17 +288,24 @@ pcall(function()
         if not aimPos then aimPos = part.Position end
 
         local sp, onScreen = Camera:WorldToViewportPoint(aimPos)
-        if not onScreen or sp.Z <= 0 then return end
-        local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-        local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-        if dist > getActiveFOV() * 1.35 then return end
+        if sp.Z <= 0 then return end
+        if not Settings.Rage then
+            if not onScreen then return end
+            local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+            local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+            if dist > getActiveFOV() * 1.35 then return end
+        else
+            local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+            local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+            if dist > getActiveFOV() * 1.6 then return end
+        end
 
         local camPos = Camera.CFrame.Position
         Camera.CFrame = CFrame.lookAt(camPos, aimPos)
     end)
 end)
 
-print("[YBTHU] Silent Aim RIVALS (Camera CFrame) listo")
+print("[YBTHU] Silent Aim RIVALS + Rage WALLBANG listo")
 
 safeConnect(RunService.RenderStepped, function(dt)
     if not running then return end
@@ -374,7 +378,6 @@ safeConnect(RunService.RenderStepped, function(dt)
             end
         end
     end
-    -- Rage sin auto-fire: tu disparas manualmente
 end)
 
 local fovGui, fovCircle, fovStroke
@@ -636,7 +639,10 @@ local function makeToggle(labelKey, settingKey, order, onColor)
     end
     value.MouseButton1Click:Connect(function()
         Settings[settingKey] = not Settings[settingKey]
-        if settingKey == "Rage" and Settings.Rage then Settings.Aimbot = true end
+        if settingKey == "Rage" and Settings.Rage then
+            Settings.Aimbot = true
+            Settings.WallCheck = false
+        end
         refresh()
         updateFOV()
     end)
@@ -749,7 +755,7 @@ end
 local footer = Instance.new("TextLabel")
 footer.Size = UDim2.new(1, 0, 0, 40)
 footer.BackgroundTransparency = 1
-footer.Text = "Silent RIVALS + Rage sin auto-fire | Insert = menú"
+footer.Text = "Rage wallbang + Silent RIVALS | Insert = menú"
 footer.TextColor3 = Theme.TextDim
 footer.Font = Enum.Font.Gotham
 footer.TextSize = 10
@@ -770,4 +776,4 @@ safeConnect(UserInputService.InputBegan, function(input, gp)
     end
 end)
 
-print("[YBTHU BETA 2 PRO] Mouse Aim + Silent RIVALS + Rage sin auto-fire")
+print("[YBTHU BETA 2 PRO] Rage WALLBANG (sin auto-fire) + Silent RIVALS")
