@@ -1,0 +1,294 @@
+-- ============================================
+-- YBTHU MINI - BLADE BALL (Bola de hoja)
+-- 1) No Cooldown BLOCK
+-- 2) No Cooldown ABILITY
+-- 3) Apagar + eliminar todo
+-- ============================================
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local StarterGui = game:GetService("StarterGui")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local Runtime = (getgenv and getgenv()) or _G
+
+if Runtime.__YBTHU_MINI_KILL then
+    pcall(Runtime.__YBTHU_MINI_KILL)
+    task.wait(0.05)
+end
+
+local running = true
+local connections = {}
+local guiRef = nil
+
+local State = {
+    NoCdBlock = false,
+    NoCdAbility = false,
+}
+
+local function safeConnect(sig, fn)
+    local c = sig:Connect(fn)
+    table.insert(connections, c)
+    return c
+end
+
+local function notify(title, text)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = title,
+            Text = text,
+            Duration = 3,
+        })
+    end)
+end
+
+-- ===================== APAGAR + LIMPIAR =====================
+local function killAll()
+    if not running then return end
+    running = false
+    State.NoCdBlock = false
+    State.NoCdAbility = false
+
+    for i = 1, #connections do
+        local c = connections[i]
+        if c then pcall(function() c:Disconnect() end) end
+    end
+    connections = {}
+
+    pcall(function()
+        if guiRef then guiRef:Destroy() end
+    end)
+    guiRef = nil
+
+    pcall(function()
+        local names = { "YBTHU_MINI" }
+        local parents = {}
+        if typeof(gethui) == "function" then
+            local ok, h = pcall(gethui)
+            if ok and h then table.insert(parents, h) end
+        end
+        pcall(function() table.insert(parents, game:GetService("CoreGui")) end)
+        pcall(function()
+            local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+            if pg then table.insert(parents, pg) end
+        end)
+        for _, parent in ipairs(parents) do
+            for _, name in ipairs(names) do
+                local obj = parent:FindFirstChild(name)
+                if obj then pcall(function() obj:Destroy() end) end
+            end
+        end
+    end)
+
+    if Runtime.__YBTHU_MINI_KILL == killAll then
+        Runtime.__YBTHU_MINI_KILL = nil
+    end
+
+    notify("YBTHU", "Script APAGADO - todo eliminado")
+    print("[YBTHU MINI] Blade Ball apagado")
+end
+
+Runtime.__YBTHU_MINI_KILL = killAll
+
+-- ===================== INPUT HELPERS =====================
+local function pressKey(keyCode)
+    pcall(function()
+        if typeof(keypress) == "function" and typeof(keyrelease) == "function" then
+            keypress(keyCode)
+            task.defer(function()
+                pcall(keyrelease, keyCode)
+            end)
+            return
+        end
+        VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+        task.defer(function()
+            pcall(function()
+                VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+            end)
+        end)
+    end)
+end
+
+local function clickMouse()
+    pcall(function()
+        if typeof(mouse1click) == "function" then
+            mouse1click()
+            return
+        end
+        if typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then
+            mouse1press()
+            task.defer(function() pcall(mouse1release) end)
+            return
+        end
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+        task.defer(function()
+            pcall(function()
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+            end)
+        end)
+    end)
+end
+
+-- Blade Ball: BLOCK = F / Click | ABILITY = Q
+local function doBlock()
+    -- F (tecla principal de block) + click (tambien funciona en mobile/pc)
+    pressKey(Enum.KeyCode.F)
+    clickMouse()
+end
+
+local function doAbility()
+    -- Q es la tecla de habilidad en Blade Ball
+    pressKey(Enum.KeyCode.Q)
+end
+
+-- ===================== LOOPS =====================
+local lastBlock, lastAbility = 0, 0
+
+safeConnect(RunService.Heartbeat, function()
+    if not running then return end
+    local now = tick()
+
+    -- No CD Block: spam de parry/block
+    if State.NoCdBlock and (now - lastBlock) >= 0.05 then
+        lastBlock = now
+        doBlock()
+    end
+
+    -- No CD Ability: spam de habilidad
+    if State.NoCdAbility and (now - lastAbility) >= 0.08 then
+        lastAbility = now
+        doAbility()
+    end
+end)
+
+-- ===================== GUI =====================
+local function getParent()
+    if typeof(gethui) == "function" then
+        local ok, h = pcall(gethui)
+        if ok and h then return h end
+    end
+    local ok, core = pcall(function() return game:GetService("CoreGui") end)
+    if ok and core then
+        local ok2 = pcall(function()
+            local t = Instance.new("Folder")
+            t.Parent = core
+            t:Destroy()
+        end)
+        if ok2 then return core end
+    end
+    return LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 5)
+end
+
+local function buildUI()
+    local parent = getParent()
+    if not parent then
+        warn("[YBTHU MINI] No se pudo crear GUI")
+        return
+    end
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "YBTHU_MINI"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.DisplayOrder = 999999
+    gui.Parent = parent
+    guiRef = gui
+
+    local frame = Instance.new("Frame")
+    frame.Name = "Main"
+    frame.Size = UDim2.new(0, 230, 0, 210)
+    frame.Position = UDim2.new(0, 20, 0.5, -105)
+    frame.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+    frame.BorderSizePixel = 0
+    frame.Active = true
+    frame.Parent = gui
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(50, 50, 65)
+    stroke.Thickness = 1
+    stroke.Parent = frame
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 40)
+    title.BackgroundTransparency = 1
+    title.Text = "YBTHU | Bola de hoja"
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 15
+    title.TextColor3 = Color3.fromRGB(255, 200, 50)
+    title.Parent = frame
+
+    -- Drag
+    do
+        local dragging, startPos, startInput = false, nil, nil
+        title.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                startInput = input.Position
+                startPos = frame.Position
+            end
+        end)
+        title.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = false
+            end
+        end)
+        UserInputService.InputChanged:Connect(function(input)
+            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                local delta = input.Position - startInput
+                frame.Position = UDim2.new(
+                    startPos.X.Scale, startPos.X.Offset + delta.X,
+                    startPos.Y.Scale, startPos.Y.Offset + delta.Y
+                )
+            end
+        end)
+    end
+
+    local function makeBtn(text, y, color, callback)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, -24, 0, 42)
+        btn.Position = UDim2.new(0, 12, 0, y)
+        btn.BackgroundColor3 = color
+        btn.Text = text
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 13
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.AutoButtonColor = true
+        btn.Parent = frame
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+        btn.MouseButton1Click:Connect(callback)
+        return btn
+    end
+
+    local off = Color3.fromRGB(45, 45, 58)
+    local on = Color3.fromRGB(40, 160, 90)
+
+    local btnBlock
+    btnBlock = makeBtn("NO CD BLOCK: OFF", 50, off, function()
+        if not running then return end
+        State.NoCdBlock = not State.NoCdBlock
+        btnBlock.Text = State.NoCdBlock and "NO CD BLOCK: ON" or "NO CD BLOCK: OFF"
+        btnBlock.BackgroundColor3 = State.NoCdBlock and on or off
+        notify("YBTHU", State.NoCdBlock and "No CD Block ON" or "No CD Block OFF")
+    end)
+
+    local btnAbility
+    btnAbility = makeBtn("NO CD ABILITY: OFF", 102, off, function()
+        if not running then return end
+        State.NoCdAbility = not State.NoCdAbility
+        btnAbility.Text = State.NoCdAbility and "NO CD ABILITY: ON" or "NO CD ABILITY: OFF"
+        btnAbility.BackgroundColor3 = State.NoCdAbility and on or off
+        notify("YBTHU", State.NoCdAbility and "No CD Ability ON" or "No CD Ability OFF")
+    end)
+
+    makeBtn("APAGAR SCRIPT", 154, Color3.fromRGB(180, 45, 45), function()
+        killAll()
+    end)
+end
+
+pcall(buildUI)
+print("[YBTHU MINI] Blade Ball (Bola de hoja) listo")
+notify("YBTHU MINI", "Block + Ability listos")
