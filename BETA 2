@@ -870,25 +870,14 @@ safeConnect(UserInputService.InputEnded, function(input)
 end)
 
 -- =====================================================
--- SILENT AIM REAL (hooks Raycast + mouse.Hit) + camera lock fuerte
--- Compatible con Real executor (todo en pcall para no tumbar)
+-- SILENT AIM ARREGLADO (Rivals)
+-- - Utility.Raycast (dano real)
+-- - workspace Raycast / FindPartOnRay
+-- - mouse.Hit via game __index
+-- - checkcaller (no rompe raycasts internos)
+-- - FOV en getHookAimPos
 -- =====================================================
 
--- Posicion objetivo para hooks (siempre actualizada)
-local function getHookAimPos()
-    if not running then return nil end
-    if not (Settings.SilentAim or Settings.Rage) then return nil end
-    local part = currentTarget
-    if not part or not part.Parent then
-        part = getClosestTarget()
-        if part then currentTarget = part end
-    end
-    if not part or not part.Parent then return nil end
-    local pos = silentAimPos or getPredictedPosition(part) or part.Position
-    return pos, part
-end
-
--- Helper: newcclosure seguro (Real lo tiene, otros a veces no)
 local function safeClosure(fn)
     if typeof(newcclosure) == "function" then
         local ok, c = pcall(newcclosure, fn)
@@ -897,20 +886,120 @@ local function safeClosure(fn)
     return fn
 end
 
--- 1) Hook workspace.Raycast / FindPartOnRay (redirige balas)
+local function isOwnCaller()
+    local ok, res = pcall(function()
+        if typeof(checkcaller) == "function" then
+            return checkcaller()
+        end
+        return false
+    end)
+    return ok and res
+end
+
+-- Posicion + part para hooks (con FOV)
+local function getHookAimPos()
+    if not running then return nil end
+    if not (Settings.SilentAim or Settings.Rage) then return nil end
+
+    local part = currentTarget
+    if not part or not part.Parent then
+        part = getClosestTarget()
+        if part then currentTarget = part end
+    end
+    if not part or not part.Parent then return nil end
+
+    local pos = silentAimPos or getPredictedPosition(part) or part.Position
+    if not pos then return nil end
+
+    -- FOV check (en Rage FOV mas grande; si off-screen en Rage igual se permite)
+    local sp, onScreen = Camera:WorldToViewportPoint(pos)
+    if sp.Z <= 0 and not Settings.Rage then return nil end
+    if onScreen and sp.Z > 0 then
+        local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+        local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+        local maxF = getActiveFOV() * (Settings.Rage and 1.8 or 1.5)
+        if dist > maxF then return nil end
+    elseif not Settings.Rage then
+        return nil
+    end
+
+    return pos, part
+end
+
+-- 0) RIVALS: Utility.Raycast (este registra el dano)
+task.spawn(function()
+    local hooked = false
+    for attempt = 1, 20 do
+        if hooked or not running then break end
+        pcall(function()
+            if typeof(hookfunction) ~= "function" then
+                print("[YBTHU] sin hookfunction - Utility.Raycast no disponible")
+                hooked = true
+                return
+            end
+            local RS = game:GetService("ReplicatedStorage")
+            local Modules = RS:FindFirstChild("Modules")
+            if not Modules then return end
+            local Utility = Modules:FindFirstChild("Utility")
+            if not Utility then return end
+            local util
+            if Utility:IsA("ModuleScript") then
+                local okReq, res = pcall(require, Utility)
+                if okReq and type(res) == "table" then util = res end
+            end
+            if type(util) ~= "table" or type(util.Raycast) ~= "function" then return end
+            if util.__YBTHU_HOOKED then
+                hooked = true
+                return
+            end
+            local oldRay = util.Raycast
+            util.Raycast = safeClosure(function(self, origin, target, distance, filter, ...)
+                if running and (Settings.SilentAim or Settings.Rage) and not isOwnCaller() then
+                    local distOk = true
+                    if typeof(distance) == "number" then
+                        distOk = distance >= 50
+                    end
+                    if distOk then
+                        local aimPos, part = getHookAimPos()
+                        if aimPos and part and part.Parent then
+                            return oldRay(self, origin, part.Position, distance, filter, ...)
+                        end
+                    end
+                end
+                return oldRay(self, origin, target, distance, filter, ...)
+            end)
+            util.__YBTHU_HOOKED = true
+            hooked = true
+            print("[YBTHU] RIVALS Utility.Raycast HOOK OK (intento " .. tostring(attempt) .. ")")
+            pcall(function()
+                StarterGui:SetCore("SendNotification", {
+                    Title = "YBTHU",
+                    Text = "Silent Aim Rivals ACTIVO",
+                    Duration = 4
+                })
+            end)
+        end)
+        if not hooked then task.wait(0.75) end
+    end
+    if not hooked then
+        print("[YBTHU] AVISO: Utility.Raycast no enganchado - usa fallbacks")
+    end
+end)
+
+-- 1) workspace Raycast / FindPartOnRay
 pcall(function()
     if typeof(hookmetamethod) ~= "function" then
-        print("[YBTHU] Sin hookmetamethod - silent limitado a camera")
+        print("[YBTHU] Sin hookmetamethod - silent limitado")
         return
     end
     local oldNamecall
     oldNamecall = hookmetamethod(game, "__namecall", safeClosure(function(self, ...)
         local method = getnamecallmethod()
         local args = {...}
-        if running and (Settings.SilentAim or Settings.Rage) then
+
+        if running and (Settings.SilentAim or Settings.Rage) and not isOwnCaller() then
             local aimPos, part = getHookAimPos()
             if aimPos and part then
-                -- Raycast de Roblox
                 if method == "Raycast" and self == workspace then
                     local origin = args[1]
                     if typeof(origin) == "Vector3" then
@@ -921,8 +1010,9 @@ pcall(function()
                         end
                     end
                 end
-                -- FindPartOnRay / FindPartOnRayWithIgnoreList / WithWhitelist
-                if method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist" then
+                if method == "FindPartOnRay"
+                    or method == "FindPartOnRayWithIgnoreList"
+                    or method == "FindPartOnRayWithWhitelist" then
                     local ray = args[1]
                     if typeof(ray) == "Ray" then
                         local origin = ray.Origin
@@ -940,15 +1030,14 @@ pcall(function()
     print("[YBTHU] Silent Aim: hook __namecall Raycast OK")
 end)
 
--- 2) Spoof mouse.Hit / mouse.UnitRay (muchas armas de Rivals lo usan)
+-- 2) mouse.Hit / UnitRay / Target via game __index (mas compatible con Real)
 pcall(function()
     local mouse = LocalPlayer:GetMouse()
-    if not mouse then return end
-    if not hookmetamethod then return end
+    if not mouse or typeof(hookmetamethod) ~= "function" then return end
     local oldIndex
-    oldIndex = hookmetamethod(mouse, "__index", safeClosure(function(self, key)
-        if running and (Settings.SilentAim or Settings.Rage) then
-            local aimPos = select(1, getHookAimPos())
+    oldIndex = hookmetamethod(game, "__index", safeClosure(function(self, key)
+        if self == mouse and running and (Settings.SilentAim or Settings.Rage) and not isOwnCaller() then
+            local aimPos, part = getHookAimPos()
             if aimPos then
                 if key == "Hit" then
                     return CFrame.new(aimPos)
@@ -956,11 +1045,10 @@ pcall(function()
                 if key == "UnitRay" then
                     local origin = Camera.CFrame.Position
                     local dir = (aimPos - origin)
-                    if dir.Magnitude < 0.1 then dir = Camera.CFrame.LookVector end
-                    return Ray.new(origin, dir.Unit)
+                    if dir.Magnitude < 0.1 then dir = Camera.CFrame.LookVector else dir = dir.Unit end
+                    return Ray.new(origin, dir)
                 end
                 if key == "Target" then
-                    local part = select(2, getHookAimPos())
                     return part
                 end
             end
@@ -970,20 +1058,17 @@ pcall(function()
     print("[YBTHU] Silent Aim: mouse.Hit / UnitRay spoof OK")
 end)
 
--- 3) Camera lock FUERTE en RenderStep (prioridad alta) para Real
+-- 3) Camera backup (Real a veces pisa CFrame)
 pcall(function()
     RunService:BindToRenderStep("YBTHU_SilentRivals_R3", Enum.RenderPriority.Camera.Value + 10, function()
         if not running then return end
         local aimPos = select(1, getHookAimPos())
         if not aimPos then return end
 
-        -- Rage Camera Lock: forzar mira al target
         if Settings.Rage and Settings.RageCameraLock and not pbBusy then
             pcall(function()
-                local look = CFrame.lookAt(Camera.CFrame.Position, aimPos)
-                Camera.CFrame = look  -- instantaneo (sin lerp suave que Real puede pisar)
+                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, aimPos)
             end)
-        -- Silent: solo al disparar
         elseif Settings.SilentAim and rivalsSilentActive() then
             pcall(function()
                 Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, aimPos)
@@ -991,7 +1076,7 @@ pcall(function()
         end
     end)
 end)
-print("[YBTHU] Silent Aim: hooks + camera lock fuerte OK")
+print("[YBTHU] Silent Aim ARREGLADO: Utility + namecall + mouse + camera")
 
 -- Triggerbot (sin yield)
 local lastTriggerShot = 0
@@ -2694,5 +2779,5 @@ print("[YBTHU] mousemoverel: " .. (typeof(mousemoverel) == "function" and "SI" o
 print("[YBTHU] IgnoreFriends = ON (ya no se pega a tus amigos)")
 print("[YBTHU] IgnoreTeam = OFF por defecto (en Rivals filtraba a todos)")
 print("[YBTHU] Aimbot mejorado: mas preciso, mejor prediccion, menos overshoot")
-print("[YBTHU] Silent Aim: camera al disparar + hook Raycast opcional")
+print("[YBTHU] Silent Aim ARREGLADO: Utility.Raycast + namecall + mouse + FOV")
 print("[YBTHU] RAGE profesional: AutoShoot + CameraLock + Wallbang + FOV 800")
