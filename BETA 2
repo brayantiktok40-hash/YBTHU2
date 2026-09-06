@@ -1,11 +1,13 @@
 -- ============================================
--- YBTHU BETA R3.4 RAGE - FULL RIVALS
--- Correcciones R3.3:
--- - Ignore Team ARREGLADO (ya no ignora a todos los enemigos)
--- - Aimbot mucho mas pegajoso (Smoothness 0.82, deadzone bajo, maxStep alto)
--- - Target system verificado y conectado correctamente al aimbot
--- - StickyAim mas fuerte
--- - Prediction y refresh mejorados
+-- YBTHU BETA 2 - FULL RIVALS (STABLE FIX)
+-- Fixes:
+-- - Silent: Utility.Raycast + namecall + mouse + FOV + checkcaller
+-- - passHitChance solo al disparar (no cada frame)
+-- - Wallbang espalda sin congelar camara vieja (mira al target)
+-- - Sticky Rage off-screen OK
+-- - fireOnce sin doble click
+-- - Rage target score consistente
+-- - Config guarda mas settings
 -- ============================================
 
 local Players = game:GetService("Players")
@@ -160,6 +162,7 @@ local function saveConfig()
         RageAutoShoot = Settings.RageAutoShoot,
         RageWallbang = Settings.RageWallbang,
         RageCameraLock = Settings.RageCameraLock,
+        RageFireOnlyOnTarget = Settings.RageFireOnlyOnTarget,
         Triggerbot = Settings.Triggerbot,
         FOV = Settings.FOV,
         RageFOV = Settings.RageFOV,
@@ -167,7 +170,13 @@ local function saveConfig()
         MaxDistance = Settings.MaxDistance,
         TargetPart = Settings.TargetPart,
         Smoothness = Settings.Smoothness,
+        RageSmoothness = Settings.RageSmoothness,
+        AimDeadzone = Settings.AimDeadzone,
+        SilentSmoothness = Settings.SilentSmoothness,
         Prediction = Settings.Prediction,
+        AutoFireRate = Settings.AutoFireRate,
+        MouseAccel = Settings.MouseAccel,
+        TargetRefresh = Settings.TargetRefresh,
         WallCheck = Settings.WallCheck,
         IgnoreTeam = Settings.IgnoreTeam,
         IgnoreFriends = Settings.IgnoreFriends,
@@ -243,7 +252,7 @@ Settings.Visible = true
 
 local pbSavedCFrame, pbUntil, pbBusy, lastPB = nil, 0, false, 0
 local pbSavedCamCFrame, pbSavedCamType = nil, nil
-local PB_HOLD_TIME = 0.48   -- tiempo pegado al enemigo antes de volver
+local PB_HOLD_TIME = 0.36   -- tiempo pegado al enemigo antes de volver
 local PB_COOLDOWN = 0.35
 local espCache = {}
 local unlockConnection = nil
@@ -646,12 +655,22 @@ local function getClosestTarget()
         local char = stickyTarget:FindFirstAncestorOfClass("Model") or stickyTarget.Parent
         local player = typeof(char) == "Instance" and char:IsA("Model") and Players:GetPlayerFromCharacter(char)
         local withinDistance = (camPos - stickyTarget.Position).Magnitude <= Settings.MaxDistance
-        if player and withinDistance and isValidPlayer(player) then
+        if player and withinDistance and isValidPlayer(player) and hasLineOfSight(camPos, stickyTarget, char) then
             local sp, onScreen = Camera:WorldToViewportPoint(stickyTarget.Position)
-            if onScreen and sp.Z > 0 then
+            local stickyMul = Settings.Rage and 2.4 or 1.9
+            if Settings.Rage then
+                -- Rage: sticky aunque este off-screen
+                if onScreen and sp.Z > 0 then
+                    local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                    if dist <= fov * stickyMul then
+                        return stickyTarget
+                    end
+                else
+                    return stickyTarget
+                end
+            elseif onScreen and sp.Z > 0 then
                 local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                local stickyMul = Settings.Rage and 2.4 or 1.9
-                if dist <= fov * stickyMul and hasLineOfSight(camPos, stickyTarget, char) then
+                if dist <= fov * stickyMul then
                     return stickyTarget
                 end
             end
@@ -668,12 +687,13 @@ local function getClosestTarget()
                 if worldDist <= Settings.MaxDistance then
                     local sp, onScreen = Camera:WorldToViewportPoint(part.Position)
                     if Settings.Rage then
-                        -- Rage: prioriza distancia en mundo, no solo pantalla
-                        local score = worldDist
+                        -- Rage: score en "unidades pantalla-equivalentes" (no mezclar px con studs)
+                        local score
                         if onScreen and sp.Z > 0 then
                             score = (Vector2.new(sp.X, sp.Y) - center).Magnitude
                         else
-                            score = 500 + worldDist  -- off-screen penalizado pero permitido
+                            -- off-screen: penalizar pero permitir (equiv ~ fuera de FOV)
+                            score = fov + worldDist * 0.35
                         end
                         if score < closestDist and hasLineOfSight(camPos, part, character) then
                             closestDist = score
@@ -719,29 +739,31 @@ local function doPointBlankWallbang()
     pbBusy = true
     lastPB = tick()
     local ok = pcall(function()
-        -- Guardar posicion del personaje Y de la camara
+        -- Guardar posicion del personaje (para volver)
         pbSavedCFrame = root.CFrame
         pbSavedCamCFrame = Camera.CFrame
         pbSavedCamType = Camera.CameraType
 
-        -- Congelar camara (no se mueve aunque el body se teletransporte)
-        Camera.CameraType = Enum.CameraType.Scriptable
-        Camera.CFrame = pbSavedCamCFrame
-
-        -- Colocarse DETRAS del enemigo (espalda) en vez de al frente
+        -- Colocarse DETRAS del enemigo (espalda)
         local targetRoot = target.Parent and target.Parent:FindFirstChild("HumanoidRootPart")
         local lookVec
         if targetRoot then
             lookVec = targetRoot.CFrame.LookVector
         else
-            -- fallback si no hay HRP
-            lookVec = (tpos - root.Position).Unit
+            lookVec = (tpos - root.Position)
+            if lookVec.Magnitude < 0.1 then lookVec = Vector3.new(0, 0, 1) end
+            lookVec = lookVec.Unit
         end
-        local behindDir = -lookVec  -- direccion opuesta a donde mira el enemigo
+        local behindDir = -lookVec
         if behindDir.Magnitude < 0.1 then behindDir = Vector3.new(0, 0, -1) end
         behindDir = behindDir.Unit
         local nearPos = tpos + behindDir * 2.8 + Vector3.new(0, 1.0, 0)
-        root.CFrame = CFrame.lookAt(nearPos, tpos)  -- mirando hacia el enemigo desde atras
+        root.CFrame = CFrame.lookAt(nearPos, tpos)
+
+        -- Camara MIRA al target (no congelar vista vieja: eso rompia hits)
+        pcall(function()
+            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, tpos)
+        end)
 
         pbUntil = tick() + PB_HOLD_TIME
     end)
@@ -758,31 +780,26 @@ end
 
 -- Mantener camara fija mientras el body esta en wallbang
 local function keepPointBlankCamera()
-    if not pbBusy or not pbSavedCamCFrame then return end
+    if not pbBusy then return end
+    -- Durante wallbang: mantener mira al target (mejor registro de hits)
     pcall(function()
-        Camera.CameraType = Enum.CameraType.Scriptable
-        Camera.CFrame = pbSavedCamCFrame
+        local t = currentTarget
+        if t and t.Parent then
+            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, t.Position)
+        end
     end)
 end
 
 -- Disparo automatico (Rage / helpers)
 local function fireOnce()
     pcall(function()
-        -- Metodos multiples para maximizar compatibilidad con executors
         if typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then
             mouse1press()
-            task.delay(0.05, function()
+            task.delay(0.045, function()
                 pcall(mouse1release)
             end)
         elseif typeof(mouse1click) == "function" then
             mouse1click()
-        end
-        -- Fallback extra
-        if typeof(mouse1press) == "function" then
-            pcall(mouse1press)
-            task.delay(0.04, function()
-                if typeof(mouse1release) == "function" then pcall(mouse1release) end
-            end)
         end
     end)
 end
@@ -1105,7 +1122,7 @@ end)
 -- Aim principal + Hard Guard
 safeConnect(RunService.RenderStepped, function(dt)
     if not running then return end
-    -- Camara fija durante wallbang (body se mueve, tu vista no)
+    -- Wallbang: mantener mira al target y restaurar a tiempo
     if pbBusy then
         keepPointBlankCamera()
         if tick() >= pbUntil then
@@ -1134,7 +1151,7 @@ safeConnect(RunService.RenderStepped, function(dt)
         or Settings.SilentAim
         or (Settings.Aimbot and (aiming or mouseHeld))
     if not shouldAim then return end
-    if not passHitChance() then return end
+    -- passHitChance SOLO al disparar (no cada frame: rompia silent/target)
 
     local now = os.clock()
     local refresh = Settings.Rage and 0.018 or (Settings.TargetRefresh or 0.055)
@@ -2772,7 +2789,7 @@ else
     end)
 end
 
-print("[YBTHU BETA R3.4 RAGE] Cargado correctamente")
+print("[YBTHU BETA 2 STABLE] Cargado correctamente")
 print("[YBTHU] Insert = menú  |  = = siguiente skin")
 print("[YBTHU] Drawing API: " .. (drawingAvailable and "SI" or "NO (solo Chams)"))
 print("[YBTHU] mousemoverel: " .. (typeof(mousemoverel) == "function" and "SI" or "NO"))
@@ -2780,4 +2797,4 @@ print("[YBTHU] IgnoreFriends = ON (ya no se pega a tus amigos)")
 print("[YBTHU] IgnoreTeam = OFF por defecto (en Rivals filtraba a todos)")
 print("[YBTHU] Aimbot mejorado: mas preciso, mejor prediccion, menos overshoot")
 print("[YBTHU] Silent Aim ARREGLADO: Utility.Raycast + namecall + mouse + FOV")
-print("[YBTHU] RAGE profesional: AutoShoot + CameraLock + Wallbang + FOV 800")
+print("[YBTHU] Fixes: Silent Utility + no HitChance en loop + wallbang cam + sticky rage")
