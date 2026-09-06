@@ -926,18 +926,23 @@ local function getHookAimPos()
     if not part or not part.Parent then return nil end
 
     local pos = silentAimPos or getPredictedPosition(part) or part.Position
-    if not pos then return nil end
+    if not pos then pos = part.Position end
 
-    -- FOV check (en Rage FOV mas grande; si off-screen en Rage igual se permite)
+    -- FOV: en Silent un poco permisivo; en Rage muy permisivo
     local sp, onScreen = Camera:WorldToViewportPoint(pos)
-    if sp.Z <= 0 and not Settings.Rage then return nil end
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local maxF = getActiveFOV() * (Settings.Rage and 2.2 or 1.75)
     if onScreen and sp.Z > 0 then
-        local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
         local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-        local maxF = getActiveFOV() * (Settings.Rage and 1.8 or 1.5)
         if dist > maxF then return nil end
-    elseif not Settings.Rage then
-        return nil
+    else
+        if not Settings.Rage then
+            -- Silent: si esta un poco fuera, igual permitir si esta cerca en mundo
+            local worldDist = (Camera.CFrame.Position - pos).Magnitude
+            if worldDist > (Settings.MaxDistance or 600) * 0.85 then
+                return nil
+            end
+        end
     end
 
     return pos, part
@@ -1003,7 +1008,27 @@ task.spawn(function()
     end
 end)
 
--- 1) workspace Raycast / FindPartOnRay
+-- 1a) hookfunction workspace.Raycast (si el executor lo permite)
+pcall(function()
+    if typeof(hookfunction) ~= "function" then return end
+    local oldWR = workspace.Raycast
+    if typeof(oldWR) ~= "function" then return end
+    workspace.Raycast = safeClosure(function(self, origin, direction, params, ...)
+        if running and (Settings.SilentAim or Settings.Rage) and not isOwnCaller() then
+            local aimPos = select(1, getHookAimPos())
+            if aimPos and typeof(origin) == "Vector3" then
+                local dir = (aimPos - origin)
+                if dir.Magnitude > 0.1 then
+                    direction = dir.Unit * math.max(dir.Magnitude, 900)
+                end
+            end
+        end
+        return oldWR(self, origin, direction, params, ...)
+    end)
+    print("[YBTHU] Silent Aim: workspace.Raycast hookfunction OK")
+end)
+
+-- 1) workspace Raycast / FindPartOnRay via namecall
 pcall(function()
     if typeof(hookmetamethod) ~= "function" then
         print("[YBTHU] Sin hookmetamethod - silent limitado")
@@ -1146,12 +1171,11 @@ safeConnect(RunService.RenderStepped, function(dt)
         pcall(doPointBlankWallbang)
     end
 
-    -- Rage: siempre activo. Silent: rastrea. Aimbot: con tecla.
-    local shouldAim = Settings.Rage
-        or Settings.SilentAim
-        or (Settings.Aimbot and (aiming or mouseHeld))
+    -- Rage/Silent: siempre rastrean. Aimbot: siempre rastrea si esta ON
+    local shouldAim = Settings.Rage or Settings.SilentAim or Settings.Aimbot
     if not shouldAim then return end
-    -- passHitChance SOLO al disparar (no cada frame: rompia silent/target)
+    local shouldMoveMouse = Settings.Rage
+        or (Settings.Aimbot and (aiming or mouseHeld or mouse1Held))
 
     local now = os.clock()
     local refresh = Settings.Rage and 0.018 or (Settings.TargetRefresh or 0.055)
@@ -1182,7 +1206,9 @@ safeConnect(RunService.RenderStepped, function(dt)
     end
     silentAimPos = smoothedAimPosition
 
+    -- Silent solo: no mueve mouse/camara aqui (hooks se encargan), pero target ya esta listo
     if not (Settings.Aimbot or Settings.Rage) then return end
+    if Settings.Aimbot and not Settings.Rage and not shouldMoveMouse then return end
 
     local alpha = Settings.Rage and Settings.RageSmoothness or Settings.Smoothness
     local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
@@ -1238,48 +1264,46 @@ safeConnect(RunService.RenderStepped, function(dt)
         return
     end
 
-    -- ===================== AIMBOT NORMAL =====================
+    -- ===================== AIMBOT NORMAL (mas fuerte) =====================
     if onScreen and screenPoint.Z > 0 then
         local deltaX = screenPoint.X - screenCenter.X
         local deltaY = screenPoint.Y - screenCenter.Y
-        local deadzone = Settings.AimDeadzone
+        local deadzone = Settings.AimDeadzone or 2
 
         if screenOffset > deadzone then
-            local alphaClamped = math.clamp(alpha, 0.05, 0.95)
-            local frameAlpha = 1 - math.pow(1 - alphaClamped, math.clamp(dt * 60, 0.4, 1.4))
-            local accel = Settings.MouseAccel or 1.0
+            local alphaClamped = math.clamp(alpha, 0.1, 0.98)
+            local frameAlpha = 1 - math.pow(1 - alphaClamped, math.clamp(dt * 60, 0.5, 2.0))
+            local accel = Settings.MouseAccel or 1.15
 
             local distFactor
-            if screenOffset > 150 then
-                distFactor = 1.0
-            elseif screenOffset > 50 then
-                distFactor = 0.75
+            if screenOffset > 120 then
+                distFactor = 1.15
+            elseif screenOffset > 40 then
+                distFactor = 0.9
             else
-                distFactor = 0.45
+                distFactor = 0.55
             end
 
             local strength = frameAlpha * distFactor * accel
-            local maxStep = 32
+            local maxStep = 48
             local moveX = math.clamp(deltaX * strength, -maxStep, maxStep)
             local moveY = math.clamp(deltaY * strength, -maxStep, maxStep)
 
             local moved = false
             if typeof(mousemoverel) == "function" then
-                mousemoverel(moveX, moveY)
-                moved = true
-            elseif typeof(Input) == "table" and typeof(Input.MouseMove) == "function" then
-                Input.MouseMove(moveX, moveY)
-                moved = true
-            elseif typeof(mouse1move) == "function" then
-                pcall(mouse1move, moveX, moveY)
+                pcall(mousemoverel, moveX, moveY)
                 moved = true
             end
-            if not moved then
-                pcall(function()
-                    local look = CFrame.lookAt(Camera.CFrame.Position, smoothedAimPosition)
-                    Camera.CFrame = Camera.CFrame:Lerp(look, math.clamp(alpha * 0.6, 0.15, 0.55))
-                end)
+            if not moved and typeof(Input) == "table" and typeof(Input.MouseMove) == "function" then
+                pcall(Input.MouseMove, moveX, moveY)
+                moved = true
             end
+            -- Siempre reforzar con camara (Real a veces ignora mousemoverel)
+            pcall(function()
+                local look = CFrame.lookAt(Camera.CFrame.Position, smoothedAimPosition)
+                local t = moved and math.clamp(alpha * 0.45, 0.12, 0.5) or math.clamp(alpha * 0.85, 0.25, 0.75)
+                Camera.CFrame = Camera.CFrame:Lerp(look, t)
+            end)
         end
     end
 end)
