@@ -84,7 +84,7 @@ local Settings = {
     StickyAim = true,
     HitChance = 100,
     AutoFireRate = 0.07,
-    RageFireOnlyOnTarget = true, -- Solo dispara si esta alineado al target
+    RageFireOnlyOnTarget = false, -- false = dispara con target (mas hits)
 
     ESP = true,
     ESPBoxes = true,
@@ -667,7 +667,19 @@ local function getClosestTarget()
                 local worldDist = (camPos - part.Position).Magnitude
                 if worldDist <= Settings.MaxDistance then
                     local sp, onScreen = Camera:WorldToViewportPoint(part.Position)
-                    if onScreen and sp.Z > 0 then
+                    if Settings.Rage then
+                        -- Rage: prioriza distancia en mundo, no solo pantalla
+                        local score = worldDist
+                        if onScreen and sp.Z > 0 then
+                            score = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                        else
+                            score = 500 + worldDist  -- off-screen penalizado pero permitido
+                        end
+                        if score < closestDist and hasLineOfSight(camPos, part, character) then
+                            closestDist = score
+                            closest = part
+                        end
+                    elseif onScreen and sp.Z > 0 then
                         local screenDist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
                         if screenDist < closestDist and hasLineOfSight(camPos, part, character) then
                             closestDist = screenDist
@@ -716,11 +728,20 @@ local function doPointBlankWallbang()
         Camera.CameraType = Enum.CameraType.Scriptable
         Camera.CFrame = pbSavedCamCFrame
 
-        local dir = root.Position - tpos
-        if dir.Magnitude < 0.5 then dir = Vector3.new(0, 0, 1) end
-        dir = dir.Unit
-        local nearPos = tpos + dir * 2.5 + Vector3.new(0, 1.0, 0)
-        root.CFrame = CFrame.lookAt(nearPos, tpos)
+        -- Colocarse DETRAS del enemigo (espalda) en vez de al frente
+        local targetRoot = target.Parent and target.Parent:FindFirstChild("HumanoidRootPart")
+        local lookVec
+        if targetRoot then
+            lookVec = targetRoot.CFrame.LookVector
+        else
+            -- fallback si no hay HRP
+            lookVec = (tpos - root.Position).Unit
+        end
+        local behindDir = -lookVec  -- direccion opuesta a donde mira el enemigo
+        if behindDir.Magnitude < 0.1 then behindDir = Vector3.new(0, 0, -1) end
+        behindDir = behindDir.Unit
+        local nearPos = tpos + behindDir * 2.8 + Vector3.new(0, 1.0, 0)
+        root.CFrame = CFrame.lookAt(nearPos, tpos)  -- mirando hacia el enemigo desde atras
 
         pbUntil = tick() + PB_HOLD_TIME
     end)
@@ -747,12 +768,20 @@ end
 -- Disparo automatico (Rage / helpers)
 local function fireOnce()
     pcall(function()
-        if typeof(mouse1click) == "function" then
-            mouse1click()
-        elseif typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then
+        -- Metodos multiples para maximizar compatibilidad con executors
+        if typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then
             mouse1press()
-            task.defer(function()
+            task.delay(0.05, function()
                 pcall(mouse1release)
+            end)
+        elseif typeof(mouse1click) == "function" then
+            mouse1click()
+        end
+        -- Fallback extra
+        if typeof(mouse1press) == "function" then
+            pcall(mouse1press)
+            task.delay(0.04, function()
+                if typeof(mouse1release) == "function" then pcall(mouse1release) end
             end)
         end
     end)
@@ -841,21 +870,198 @@ safeConnect(UserInputService.InputEnded, function(input)
 end)
 
 -- =====================================================
--- SILENT AIM (solo camera al disparar - SIN metatable hook)
--- El hook de metatable tumba muchos executors antes del menu
+-- SILENT AIM REAL (hooks Raycast + mouse.Hit) + camera lock fuerte
+-- Compatible con Real executor (todo en pcall para no tumbar)
 -- =====================================================
-pcall(function()
-    RunService:BindToRenderStep("YBTHU_SilentRivals_R3", Enum.RenderPriority.Camera.Value + 1, function()
-        if not running or not Settings.SilentAim then return end
-        if not rivalsSilentActive() then return end
-        local ok, aimPos = pcall(getSilentAimPosition)
-        if not ok or not aimPos then return end
+
+-- Posicion objetivo para hooks (siempre actualizada)
+local function getHookAimPos()
+    if not running then return nil end
+    if not (Settings.SilentAim or Settings.Rage) then return nil end
+    local part = currentTarget
+    if not part or not part.Parent then
+        part = getClosestTarget()
+        if part then currentTarget = part end
+    end
+    if not part or not part.Parent then return nil end
+    local pos = silentAimPos or getPredictedPosition(part) or part.Position
+    return pos, part
+end
+
+-- Helper: newcclosure seguro (Real lo tiene, otros a veces no)
+local function safeClosure(fn)
+    if typeof(newcclosure) == "function" then
+        local ok, c = pcall(newcclosure, fn)
+        if ok and c then return c end
+    end
+    return fn
+end
+
+
+-- 0) RIVALS-SPECIFIC: hook Utility.Raycast (este es el que realmente registra dano)
+-- Se reintenta varias veces por si Modules carga tarde
+task.spawn(function()
+    local hooked = false
+    for attempt = 1, 15 do
+        if hooked or not running then break end
         pcall(function()
-            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, aimPos)
+            if typeof(hookfunction) ~= "function" then
+                print("[YBTHU] sin hookfunction - Real debe soportarlo")
+                hooked = true
+                return
+            end
+            local RS = game:GetService("ReplicatedStorage")
+            local Modules = RS:FindFirstChild("Modules")
+            if not Modules then return end
+            local Utility = Modules:FindFirstChild("Utility")
+            if not Utility then return end
+            local util
+            if Utility:IsA("ModuleScript") then
+                local okReq, res = pcall(require, Utility)
+                if okReq and type(res) == "table" then util = res end
+            elseif type(Utility) == "table" then
+                util = Utility
+            end
+            if type(util) ~= "table" or type(util.Raycast) ~= "function" then return end
+            -- Evitar doble hook
+            if util.__YBTHU_HOOKED then
+                hooked = true
+                return
+            end
+            local oldRay = util.Raycast
+            util.Raycast = safeClosure(function(self, origin, target, distance, filter, ...)
+                local should = running and (Settings.SilentAim or Settings.Rage)
+                local isCaller = false
+                pcall(function()
+                    if typeof(checkcaller) == "function" then isCaller = checkcaller() end
+                end)
+                if should and not isCaller then
+                    local distOk = true
+                    if typeof(distance) == "number" then
+                        distOk = (distance >= 50) -- tiros de arma suelen ser 400/999
+                    end
+                    if distOk then
+                        local aimPos, part = getHookAimPos()
+                        if aimPos and part and part.Parent then
+                            return oldRay(self, origin, part.Position, distance, filter, ...)
+                        end
+                    end
+                end
+                return oldRay(self, origin, target, distance, filter, ...)
+            end)
+            util.__YBTHU_HOOKED = true
+            hooked = true
+            print("[YBTHU] RIVALS Utility.Raycast HOOK OK (intento " .. attempt .. ")")
+            pcall(function()
+                game:GetService("StarterGui"):SetCore("SendNotification", {
+                    Title = "YBTHU",
+                    Text = "Silent Aim Rivals ACTIVO",
+                    Duration = 4
+                })
+            end)
         end)
+        if not hooked then task.wait(1) end
+    end
+    if not hooked then
+        print("[YBTHU] AVISO: no se pudo hookear Utility.Raycast - usa workspace Raycast fallback")
+    end
+end)
+
+-- 1) Hook workspace.Raycast / FindPartOnRay (redirige balas)
+pcall(function()
+    if typeof(hookmetamethod) ~= "function" then
+        print("[YBTHU] Sin hookmetamethod - silent limitado a camera")
+        return
+    end
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", safeClosure(function(self, ...)
+        local method = getnamecallmethod()
+        local args = {...}
+        if running and (Settings.SilentAim or Settings.Rage) then
+            local aimPos, part = getHookAimPos()
+            if aimPos and part then
+                -- Raycast de Roblox
+                if method == "Raycast" and self == workspace then
+                    local origin = args[1]
+                    if typeof(origin) == "Vector3" then
+                        local dir = (aimPos - origin)
+                        if dir.Magnitude > 0.1 then
+                            args[2] = dir.Unit * math.max(dir.Magnitude, 900)
+                            return oldNamecall(self, unpack(args))
+                        end
+                    end
+                end
+                -- FindPartOnRay / FindPartOnRayWithIgnoreList / WithWhitelist
+                if method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist" then
+                    local ray = args[1]
+                    if typeof(ray) == "Ray" then
+                        local origin = ray.Origin
+                        local dir = (aimPos - origin)
+                        if dir.Magnitude > 0.1 then
+                            args[1] = Ray.new(origin, dir.Unit * math.max(dir.Magnitude, 900))
+                            return oldNamecall(self, unpack(args))
+                        end
+                    end
+                end
+            end
+        end
+        return oldNamecall(self, ...)
+    end))
+    print("[YBTHU] Silent Aim: hook __namecall Raycast OK")
+end)
+
+-- 2) Spoof mouse.Hit / mouse.UnitRay (muchas armas de Rivals lo usan)
+pcall(function()
+    local mouse = LocalPlayer:GetMouse()
+    if not mouse then return end
+    if not hookmetamethod then return end
+    local oldIndex
+    oldIndex = hookmetamethod(mouse, "__index", safeClosure(function(self, key)
+        if running and (Settings.SilentAim or Settings.Rage) then
+            local aimPos = select(1, getHookAimPos())
+            if aimPos then
+                if key == "Hit" then
+                    return CFrame.new(aimPos)
+                end
+                if key == "UnitRay" then
+                    local origin = Camera.CFrame.Position
+                    local dir = (aimPos - origin)
+                    if dir.Magnitude < 0.1 then dir = Camera.CFrame.LookVector end
+                    return Ray.new(origin, dir.Unit)
+                end
+                if key == "Target" then
+                    local part = select(2, getHookAimPos())
+                    return part
+                end
+            end
+        end
+        return oldIndex(self, key)
+    end))
+    print("[YBTHU] Silent Aim: mouse.Hit / UnitRay spoof OK")
+end)
+
+-- 3) Camera lock FUERTE en RenderStep (prioridad alta) para Real
+pcall(function()
+    RunService:BindToRenderStep("YBTHU_SilentRivals_R3", Enum.RenderPriority.Camera.Value + 10, function()
+        if not running then return end
+        local aimPos = select(1, getHookAimPos())
+        if not aimPos then return end
+
+        -- Rage Camera Lock: forzar mira al target
+        if Settings.Rage and Settings.RageCameraLock and not pbBusy then
+            pcall(function()
+                local look = CFrame.lookAt(Camera.CFrame.Position, aimPos)
+                Camera.CFrame = look  -- instantaneo (sin lerp suave que Real puede pisar)
+            end)
+        -- Silent: solo al disparar
+        elseif Settings.SilentAim and rivalsSilentActive() then
+            pcall(function()
+                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, aimPos)
+            end)
+        end
     end)
 end)
-print("[YBTHU] Silent Aim: camera al disparar OK")
+print("[YBTHU] Silent Aim: hooks + camera lock fuerte OK")
 
 -- Triggerbot (sin yield)
 local lastTriggerShot = 0
@@ -958,24 +1164,29 @@ safeConnect(RunService.RenderStepped, function(dt)
 
     -- ===================== RAGE =====================
     if Settings.Rage then
-        -- Durante wallbang: NO mover camara (ya esta congelada)
+        -- Durante wallbang: NO mover camara (ya esta congelada), pero seguir trackeando
         if pbBusy then
+            keepPointBlankCamera()
             return
         end
-        -- Camera lock adaptativo: lejos = rapido, cerca = suave (sin temblor)
+        -- Camera lock: instantaneo + mouse move (Real a veces pisa CFrame)
         if Settings.RageCameraLock then
             pcall(function()
                 local look = CFrame.lookAt(Camera.CFrame.Position, smoothedAimPosition)
-                local t
-                if screenOffset > 120 then
-                    t = 0.92
-                elseif screenOffset > 40 then
-                    t = math.clamp(alpha, 0.55, 0.82)
-                else
-                    t = math.clamp(alpha * 0.7, 0.35, 0.6)
-                end
-                Camera.CFrame = Camera.CFrame:Lerp(look, t)
+                Camera.CFrame = look
             end)
+            -- Refuerzo con mousemoverel por si el juego resetea la camara
+            if onScreen and screenPoint.Z > 0 and screenOffset > 3 then
+                local dx = screenPoint.X - screenCenter.X
+                local dy = screenPoint.Y - screenCenter.Y
+                local strength = 0.65
+                local maxStep = 80
+                local moveX = math.clamp(dx * strength, -maxStep, maxStep)
+                local moveY = math.clamp(dy * strength, -maxStep, maxStep)
+                if typeof(mousemoverel) == "function" then
+                    pcall(mousemoverel, moveX, moveY)
+                end
+            end
         else
             -- Sin camera lock: mouse mas agresivo pero controlado
             if onScreen and screenPoint.Z > 0 and screenOffset > 2.5 then
@@ -1041,21 +1252,36 @@ safeConnect(RunService.RenderStepped, function(dt)
     end
 end)
 
--- RAGE Auto Shoot: solo cuando el aim esta cerca del target (mas limpio)
+-- RAGE Auto Shoot: mas agresivo, dispara con target (y en wallbang)
 local lastRageShot = 0
 safeConnect(RunService.Heartbeat, function()
     if not running or not Settings.Rage or not Settings.RageAutoShoot then return end
-    if not currentTarget or not currentTarget.Parent then return end
+    if not currentTarget or not currentTarget.Parent then
+        -- Intentar adquirir target al vuelo
+        local t = getClosestTarget()
+        if t then currentTarget = t else return end
+    end
     if not passHitChance() then return end
 
-    -- Comprobar alineacion en pantalla
+    -- En wallbang: disparar siempre (estas pegado al enemigo)
+    if pbBusy then
+        local rate = (Settings.AutoFireRate or 0.07) * 0.7
+        if tick() - lastRageShot < rate then return end
+        lastRageShot = tick()
+        fireOnce()
+        return
+    end
+
+    -- Comprobar alineacion en pantalla (mas permisivo: 90px)
     if Settings.RageFireOnlyOnTarget then
         local aimPos = smoothedAimPosition or currentTarget.Position
         local sp, onScreen = Camera:WorldToViewportPoint(aimPos)
-        if not onScreen or sp.Z <= 0 then return end
-        local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-        local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-        if dist > 45 then return end -- aun no alineado
+        if onScreen and sp.Z > 0 then
+            local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+            local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+            if dist > 90 then return end
+        end
+        -- Si no esta onScreen pero hay target y CameraLock, igual disparar
     end
 
     local rate = Settings.AutoFireRate or 0.07
@@ -1769,741 +1995,201 @@ local function combatCleanup(settingKey)
     updateFOV()
 end
 
-buildUI = function()
-    local parent = getGuiParent()
-    if not parent then
-        warn("[YBTHU] No se pudo encontrar parent para el GUI (CoreGui/PlayerGui)")
+
+-- =====================================================
+-- UI: LinoriaLib (violin-suzutsuki)
+-- https://github.com/violin-suzutsuki/LinoriaLib
+-- =====================================================
+local function buildLinoriaUI()
+    local repo = "https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/"
+    local Library, ThemeManager, SaveManager
+
+    local okLib, errLib = pcall(function()
+        Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
+        ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
+        SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
+    end)
+    if not okLib or not Library then
+        warn("[YBTHU] No se pudo cargar LinoriaLib:", errLib)
         pcall(function()
             StarterGui:SetCore("SendNotification", {
                 Title = "YBTHU",
-                Text = "Error: no se pudo crear el menu (GUI parent)",
+                Text = "Error cargando LinoriaLib (HttpGet)",
                 Duration = 8
             })
         end)
         return
     end
-    if screenGuiRef then pcall(function() screenGuiRef:Destroy() end) end
-    -- Quitar menu de emergencia si existe
+
+    Library.AccentColor = Color3.fromRGB(255, 200, 50)
+    Library.AccentColorDark = Library:GetDarkerColor(Library.AccentColor)
+
+    local Window = Library:CreateWindow({
+        Title = "YBTHU  |  BETA 2 RAGE",
+        Center = true,
+        AutoShow = true,
+        TabPadding = 8,
+        MenuFadeTime = 0.15,
+    })
+
+    local Tabs = {
+        Combat = Window:AddTab("Combat"),
+        Visuals = Window:AddTab("Visuals"),
+        GunMods = Window:AddTab("Gun Mods"),
+        Settings = Window:AddTab("Settings"),
+    }
+
+    -- ===== COMBAT =====
+    local AimBox = Tabs.Combat:AddLeftGroupbox("Aim")
+    AimBox:AddToggle("Aimbot", { Text = "Aimbot", Default = Settings.Aimbot, Callback = function(v) Settings.Aimbot = v end })
+    AimBox:AddToggle("SilentAim", { Text = "Silent Aim", Default = Settings.SilentAim, Callback = function(v) Settings.SilentAim = v end })
+    AimBox:AddToggle("Triggerbot", { Text = "Triggerbot", Default = Settings.Triggerbot, Callback = function(v) Settings.Triggerbot = v end })
+    AimBox:AddToggle("StickyAim", { Text = "Sticky Aim", Default = Settings.StickyAim, Callback = function(v) Settings.StickyAim = v end })
+    AimBox:AddToggle("WallCheck", { Text = "Wall Check", Default = Settings.WallCheck, Callback = function(v) Settings.WallCheck = v end })
+    AimBox:AddToggle("IgnoreTeam", { Text = "Ignore Team", Default = Settings.IgnoreTeam, Callback = function(v) Settings.IgnoreTeam = v end })
+    AimBox:AddToggle("IgnoreFriends", { Text = "Ignore Friends", Default = Settings.IgnoreFriends, Callback = function(v) Settings.IgnoreFriends = v end })
+
+    local RageBox = Tabs.Combat:AddRightGroupbox("Rage")
+    RageBox:AddToggle("Rage", {
+        Text = "Rage Aim",
+        Default = Settings.Rage,
+        Callback = function(v)
+            Settings.Rage = v
+            if not v then pcall(restorePointBlank) end
+        end
+    })
+    RageBox:AddToggle("RageAutoShoot", { Text = "Rage Auto Shoot", Default = Settings.RageAutoShoot, Callback = function(v) Settings.RageAutoShoot = v end })
+    RageBox:AddToggle("RageWallbang", { Text = "Rage Wallbang (espalda)", Default = Settings.RageWallbang, Callback = function(v) Settings.RageWallbang = v end })
+    RageBox:AddToggle("RageCameraLock", { Text = "Rage Camera Lock", Default = Settings.RageCameraLock, Callback = function(v) Settings.RageCameraLock = v end })
+    RageBox:AddToggle("RageFireOnlyOnTarget", { Text = "Fire only on target", Default = Settings.RageFireOnlyOnTarget, Callback = function(v) Settings.RageFireOnlyOnTarget = v end })
+
+    local AimSet = Tabs.Combat:AddLeftGroupbox("Aim Settings")
+    AimSet:AddSlider("FOV", { Text = "FOV", Default = Settings.FOV, Min = 50, Max = 800, Rounding = 0, Callback = function(v) Settings.FOV = v pcall(updateFOV) end })
+    AimSet:AddSlider("RageFOV", { Text = "Rage FOV", Default = Settings.RageFOV, Min = 100, Max = 1200, Rounding = 0, Callback = function(v) Settings.RageFOV = v pcall(updateFOV) end })
+    AimSet:AddSlider("Smoothness", { Text = "Smoothness", Default = Settings.Smoothness, Min = 0.05, Max = 1, Rounding = 2, Callback = function(v) Settings.Smoothness = v end })
+    AimSet:AddSlider("RageSmoothness", { Text = "Rage Smoothness", Default = Settings.RageSmoothness, Min = 0.05, Max = 1, Rounding = 2, Callback = function(v) Settings.RageSmoothness = v end })
+    AimSet:AddSlider("Prediction", { Text = "Prediction", Default = Settings.Prediction, Min = 0, Max = 0.5, Rounding = 3, Callback = function(v) Settings.Prediction = v end })
+    AimSet:AddSlider("MaxDistance", { Text = "Max Distance", Default = Settings.MaxDistance, Min = 50, Max = 2000, Rounding = 0, Callback = function(v) Settings.MaxDistance = v end })
+    AimSet:AddSlider("HitChance", { Text = "Hit Chance", Default = Settings.HitChance, Min = 1, Max = 100, Rounding = 0, Suffix = "%", Callback = function(v) Settings.HitChance = v end })
+    AimSet:AddSlider("AutoFireRate", { Text = "Auto Fire Rate", Default = Settings.AutoFireRate, Min = 0.02, Max = 0.3, Rounding = 3, Callback = function(v) Settings.AutoFireRate = v end })
+    AimSet:AddDropdown("TargetPart", {
+        Values = { "Head", "UpperTorso", "HumanoidRootPart" },
+        Default = Settings.TargetPart,
+        Text = "Target Part",
+        Callback = function(v) Settings.TargetPart = v end
+    })
+    AimSet:AddToggle("ShowFOV", { Text = "Show FOV Circle", Default = Settings.ShowFOV, Callback = function(v) Settings.ShowFOV = v pcall(updateFOV) end })
+
+    -- ===== VISUALS =====
+    local EspBox = Tabs.Visuals:AddLeftGroupbox("ESP")
+    EspBox:AddToggle("ESP", { Text = "ESP Master", Default = Settings.ESP, Callback = function(v) Settings.ESP = v if not v then pcall(destroyAllESP) end end })
+    EspBox:AddToggle("ESPBoxes", { Text = "Boxes", Default = Settings.ESPBoxes, Callback = function(v) Settings.ESPBoxes = v end })
+    EspBox:AddToggle("ESPNames", { Text = "Names", Default = Settings.ESPNames, Callback = function(v) Settings.ESPNames = v end })
+    EspBox:AddToggle("ESPHealth", { Text = "Health", Default = Settings.ESPHealth, Callback = function(v) Settings.ESPHealth = v end })
+    EspBox:AddToggle("ESPDistance", { Text = "Distance", Default = Settings.ESPDistance, Callback = function(v) Settings.ESPDistance = v end })
+    EspBox:AddToggle("ESPTracers", { Text = "Tracers", Default = Settings.ESPTracers, Callback = function(v) Settings.ESPTracers = v end })
+    EspBox:AddToggle("ESPChams", { Text = "Chams", Default = Settings.ESPChams, Callback = function(v) Settings.ESPChams = v end })
+    EspBox:AddToggle("ESPSkeleton", { Text = "Skeleton", Default = Settings.ESPSkeleton, Callback = function(v) Settings.ESPSkeleton = v end })
+    EspBox:AddToggle("ESPArrows", { Text = "Arrows", Default = Settings.ESPArrows, Callback = function(v) Settings.ESPArrows = v end })
+    EspBox:AddToggle("ESPNameRGB", { Text = "RGB Names", Default = Settings.ESPNameRGB, Callback = function(v) Settings.ESPNameRGB = v end })
+    EspBox:AddSlider("MaxESPDistance", { Text = "Max ESP Distance", Default = Settings.MaxESPDistance, Min = 50, Max = 2000, Rounding = 0, Callback = function(v) Settings.MaxESPDistance = v end })
+
+    -- ===== GUN MODS =====
+    local GunBox = Tabs.GunMods:AddLeftGroupbox("Gun Mods")
+    GunBox:AddToggle("NoRecoil", { Text = "No Recoil", Default = Settings.NoRecoil, Callback = function(v) Settings.NoRecoil = v end })
+    GunBox:AddToggle("RapidFire", { Text = "Rapid Fire", Default = Settings.RapidFire, Callback = function(v) Settings.RapidFire = v end })
+    GunBox:AddToggle("AntiFlash", { Text = "Anti Flash", Default = Settings.AntiFlash, Callback = function(v) Settings.AntiFlash = v end })
+    GunBox:AddToggle("AntiSmoke", { Text = "Anti Smoke", Default = Settings.AntiSmoke, Callback = function(v) Settings.AntiSmoke = v end })
+    GunBox:AddToggle("SkinChanger", { Text = "Skin Changer", Default = Settings.SkinChanger, Callback = function(v) Settings.SkinChanger = v end })
+    GunBox:AddButton({
+        Text = "Siguiente Skin",
+        Func = function()
+            pcall(applyNextSkin)
+        end
+    })
+    GunBox:AddButton({
+        Text = "Recargar Skins",
+        Func = function()
+            local n = 0
+            pcall(function() n = collectSkins() end)
+            Library:Notify("Skins: " .. tostring(n), 3)
+        end
+    })
+
+    -- ===== SETTINGS =====
+    local MiscBox = Tabs.Settings:AddLeftGroupbox("Config")
+    MiscBox:AddButton({
+        Text = "Guardar Config",
+        Func = function()
+            if saveConfig() then
+                Library:Notify("Config guardada", 3)
+            else
+                Library:Notify("Error al guardar", 3)
+            end
+        end
+    })
+    MiscBox:AddButton({
+        Text = "Cargar Config",
+        Func = function()
+            if loadConfig() then
+                Library:Notify("Config cargada (reinicia toggles si hace falta)", 3)
+            else
+                Library:Notify("No hay config", 3)
+            end
+        end
+    })
+    MiscBox:AddButton({
+        Text = "Copiar Discord",
+        Func = function()
+            pcall(function()
+                if setclipboard then setclipboard(DISCORD_URL) end
+            end)
+            Library:Notify("Discord copiado", 2)
+        end
+    })
+    MiscBox:AddButton({
+        Text = "APAGAR SCRIPT",
+        Func = function()
+            pcall(killScript)
+            pcall(function() Library:Unload() end)
+        end
+    })
+
+    local UiBox = Tabs.Settings:AddRightGroupbox("UI")
+    UiBox:AddLabel("Menu Key: RightControl (Linoria default)")
+    UiBox:AddLabel("Tambien puedes usar Library.ToggleKeybind")
+    UiBox:AddToggle("TitleRGB", { Text = "RGB Title", Default = Settings.TitleRGB, Callback = function(v) Settings.TitleRGB = v end })
+
+    -- Theme + Save managers
     pcall(function()
-        local parent = getGuiParent()
-        if parent then
-            local em = parent:FindFirstChild("YBTHU_EMERGENCY")
-            if em then em:Destroy() end
-        end
-    end)
-    toggleRefs = {}
-    sliderRefs = {}
-
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "YBTHU_BETA_R3"
-    gui.ResetOnSpawn = false
-    gui.IgnoreGuiInset = true
-    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    gui.DisplayOrder = 999999
-    gui.Enabled = true
-    pcall(function() gui.Parent = parent end)
-    if not gui.Parent then
-        -- ultimo intento: PlayerGui
-        pcall(function()
-            local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-            if pg then gui.Parent = pg end
-        end)
-    end
-    if not gui.Parent then
-        warn("[YBTHU] ScreenGui no se pudo parentar")
-        return
-    end
-    screenGuiRef = gui
-    print("[YBTHU] Menu parent =", gui.Parent:GetFullName())
-
-    local window = Instance.new("Frame")
-    window.Name = "Main"
-    window.Size = UDim2.new(0, 410, 0, 560)
-    window.Position = UDim2.new(0.5, -205, 0.5, -280)
-    window.BackgroundColor3 = Theme.Bg
-    window.BorderSizePixel = 0
-    window.Active = true
-    window.ClipsDescendants = true
-    window.Visible = true
-    Settings.Visible = true
-    window.Parent = gui
-    Instance.new("UICorner", window).CornerRadius = UDim.new(0, 12)
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Theme.Stroke
-    stroke.Thickness = 1
-    stroke.Parent = window
-
-    local header = Instance.new("Frame")
-    header.Size = UDim2.new(1, 0, 0, 52)
-    header.BackgroundColor3 = Theme.Header
-    header.BorderSizePixel = 0
-    header.Parent = window
-    Instance.new("UICorner", header).CornerRadius = UDim.new(0, 12)
-    local headerFix = Instance.new("Frame")
-    headerFix.Size = UDim2.new(1, 0, 0, 16)
-    headerFix.Position = UDim2.new(0, 0, 1, -16)
-    headerFix.BackgroundColor3 = Theme.Header
-    headerFix.BorderSizePixel = 0
-    headerFix.Parent = header
-
-    local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, -60, 0, 28)
-    title.Position = UDim2.new(0, 14, 0, 6)
-    title.BackgroundTransparency = 1
-    title.Text = "YBTHU  ·  BETA R3.4 RAGE"
-    title.TextColor3 = Theme.Accent
-    title.Font = Enum.Font.GothamBold
-    title.TextSize = 16
-    title.TextXAlignment = Enum.TextXAlignment.Left
-    title.Parent = header
-
-    safeConnect(RunService.RenderStepped, function()
-        if not running or not title or not title.Parent then return end
-        if Settings.TitleRGB then
-            title.TextColor3 = rainbowColor(2.0, 0)
-        else
-            title.TextColor3 = Theme.Accent
-        end
+        ThemeManager:SetLibrary(Library)
+        SaveManager:SetLibrary(Library)
+        SaveManager:IgnoreThemeSettings()
+        SaveManager:SetFolder("YBTHU/BETA2")
+        ThemeManager:ApplyToTab(Tabs.Settings)
+        SaveManager:BuildConfigSection(Tabs.Settings)
+        SaveManager:LoadAutoloadConfig()
     end)
 
-    local subtitle = Instance.new("TextLabel")
-    subtitle.Size = UDim2.new(1, -60, 0, 16)
-    subtitle.Position = UDim2.new(0, 14, 0, 30)
-    subtitle.BackgroundTransparency = 1
-    subtitle.Text = "Bugs fixed · ESP · Skin · Config · Sliders"
-    subtitle.TextColor3 = Theme.TextDim
-    subtitle.Font = Enum.Font.Gotham
-    subtitle.TextSize = 11
-    subtitle.TextXAlignment = Enum.TextXAlignment.Left
-    subtitle.Parent = header
-
-    local minBtn = Instance.new("TextButton")
-    minBtn.Size = UDim2.new(0, 28, 0, 28)
-    minBtn.Position = UDim2.new(1, -40, 0, 12)
-    minBtn.BackgroundColor3 = Theme.Card
-    minBtn.Text = "—"
-    minBtn.TextColor3 = Theme.Text
-    minBtn.Font = Enum.Font.GothamBold
-    minBtn.TextSize = 16
-    minBtn.Parent = header
-    Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 6)
-
-    local logo = Instance.new("TextButton")
-    logo.Size = UDim2.new(0, 44, 0, 44)
-    logo.Position = UDim2.new(0, 16, 0.5, -22)
-    logo.BackgroundColor3 = Theme.Accent
-    logo.Text = "Y"
-    logo.TextColor3 = Color3.fromRGB(20, 20, 25)
-    logo.Font = Enum.Font.GothamBold
-    logo.TextSize = 20
-    logo.Visible = false
-    logo.Parent = gui
-    Instance.new("UICorner", logo).CornerRadius = UDim.new(1, 0)
-
-    minBtn.MouseButton1Click:Connect(function()
-        window.Visible = false
-        logo.Visible = true
-        Settings.Visible = false
-    end)
-    logo.MouseButton1Click:Connect(function()
-        window.Visible = true
-        logo.Visible = false
-        Settings.Visible = true
+    Library:OnUnload(function()
+        pcall(killScript)
+        print("[YBTHU] Linoria unloaded")
     end)
 
-    do
-        local dragging, dragStart, startPos = false, nil, nil
-        header.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                dragging = true
-                dragStart = input.Position
-                startPos = window.Position
-                input.Changed:Connect(function()
-                    if input.UserInputState == Enum.UserInputState.End then dragging = false end
-                end)
-            end
-        end)
-        safeConnect(UserInputService.InputChanged, function(input)
-            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                local d = input.Position - dragStart
-                window.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
-            end
-        end)
-    end
+    -- Expose for killScript / external
+    Runtime.__YBTHU_LINORIA = Library
+    screenGuiRef = Library.ScreenGui
 
-    local tabBar = Instance.new("Frame")
-    tabBar.Size = UDim2.new(1, -16, 0, 34)
-    tabBar.Position = UDim2.new(0, 8, 0, 58)
-    tabBar.BackgroundTransparency = 1
-    tabBar.Parent = window
-
-    local tabs = {"Combat", "Visuals", "GunMods", "Misc"}
-    local tabButtons, contentFrames = {}, {}
-
-    local function switchTab(name)
-        for n, btn in pairs(tabButtons) do
-            btn.BackgroundColor3 = (n == name) and Theme.TabActive or Theme.TabInactive
-            btn.TextColor3 = (n == name) and Color3.fromRGB(20, 20, 25) or Theme.Text
-        end
-        for n, fr in pairs(contentFrames) do
-            fr.Visible = (n == name)
-        end
-    end
-
-    for i, name in ipairs(tabs) do
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(0.24, -4, 1, 0)
-        btn.Position = UDim2.new((i - 1) * 0.25, 2, 0, 0)
-        btn.BackgroundColor3 = Theme.TabInactive
-        btn.Text = Texts[Settings.Language][name] or name
-        btn.TextColor3 = Theme.Text
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 12
-        btn.Parent = tabBar
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
-        tabButtons[name] = btn
-        btn.MouseButton1Click:Connect(function() switchTab(name) end)
-    end
-
-    local contentHolder = Instance.new("Frame")
-    contentHolder.Size = UDim2.new(1, -16, 1, -110)
-    contentHolder.Position = UDim2.new(0, 8, 0, 98)
-    contentHolder.BackgroundTransparency = 1
-    contentHolder.Parent = window
-
-    local function createContent(name)
-        local sc = Instance.new("ScrollingFrame")
-        sc.Size = UDim2.new(1, 0, 1, 0)
-        sc.BackgroundTransparency = 1
-        sc.BorderSizePixel = 0
-        sc.ScrollBarThickness = 4
-        sc.ScrollBarImageColor3 = Theme.Accent
-        sc.CanvasSize = UDim2.new(0, 0, 0, 0)
-        sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
-        sc.Visible = false
-        sc.Parent = contentHolder
-        contentFrames[name] = sc
-        local layout = Instance.new("UIListLayout")
-        layout.Padding = UDim.new(0, 6)
-        layout.SortOrder = Enum.SortOrder.LayoutOrder
-        layout.Parent = sc
-        local pad = Instance.new("UIPadding")
-        pad.PaddingTop = UDim.new(0, 4)
-        pad.PaddingBottom = UDim.new(0, 12)
-        pad.Parent = sc
-        return sc
-    end
-
-    local combatContent = createContent("Combat")
-    local visualsContent = createContent("Visuals")
-    local gunContent = createContent("GunMods")
-    local miscContent = createContent("Misc")
-
-    local function makeToggle(parent, labelKey, settingKey, order, onColor)
-        local row = Instance.new("Frame")
-        row.Size = UDim2.new(1, 0, 0, 36)
-        row.BackgroundColor3 = Theme.Card
-        row.BorderSizePixel = 0
-        row.LayoutOrder = order
-        row.Parent = parent
-        Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
-
-        local name = Instance.new("TextLabel")
-        name.Size = UDim2.new(0.65, 0, 1, 0)
-        name.Position = UDim2.new(0, 12, 0, 0)
-        name.BackgroundTransparency = 1
-        name.Text = Texts[Settings.Language][labelKey] or labelKey
-        name.TextColor3 = Theme.Text
-        name.Font = Enum.Font.GothamMedium
-        name.TextSize = 13
-        name.TextXAlignment = Enum.TextXAlignment.Left
-        name.Parent = row
-
-        local value = Instance.new("TextButton")
-        value.Size = UDim2.new(0, 64, 0, 26)
-        value.Position = UDim2.new(1, -74, 0.5, -13)
-        value.BackgroundColor3 = Settings[settingKey] and (onColor or Theme.On) or Theme.Off
-        value.Text = Settings[settingKey] and "ON" or "OFF"
-        value.TextColor3 = Theme.Text
-        value.Font = Enum.Font.GothamBold
-        value.TextSize = 11
-        value.Parent = row
-        Instance.new("UICorner", value).CornerRadius = UDim.new(0, 6)
-
-        local function refresh()
-            value.Text = Settings[settingKey] and "ON" or "OFF"
-            value.BackgroundColor3 = Settings[settingKey] and (onColor or Theme.On) or Theme.Off
-            name.Text = Texts[Settings.Language][labelKey] or labelKey
-        end
-        toggleRefs[settingKey] = refresh
-
-        value.MouseButton1Click:Connect(function()
-            Settings[settingKey] = not Settings[settingKey]
-            if settingKey == "Rage" and Settings.Rage then
-                Settings.Aimbot = true
-                Settings.WallCheck = false
-                if toggleRefs.Aimbot then toggleRefs.Aimbot() end
-                if toggleRefs.WallCheck then toggleRefs.WallCheck() end
-            end
-            if settingKey == "SkinChanger" then
-                setSkinChanger(Settings.SkinChanger)
-            end
-            combatCleanup(settingKey)
-            refresh()
-        end)
-        return row
-    end
-
-    local function makeSection(parent, text, order)
-        local lbl = Instance.new("TextLabel")
-        lbl.Size = UDim2.new(1, 0, 0, 22)
-        lbl.BackgroundTransparency = 1
-        lbl.Text = text
-        lbl.TextColor3 = Theme.Accent
-        lbl.Font = Enum.Font.GothamBold
-        lbl.TextSize = 12
-        lbl.TextXAlignment = Enum.TextXAlignment.Left
-        lbl.LayoutOrder = order
-        lbl.Parent = parent
-    end
-
-    local function makeButton(parent, text, order, color, callback)
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1, 0, 0, 36)
-        btn.BackgroundColor3 = color or Theme.Card
-        btn.Text = text
-        btn.TextColor3 = Theme.Text
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 13
-        btn.LayoutOrder = order
-        btn.Parent = parent
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
-        btn.MouseButton1Click:Connect(callback)
-        return btn
-    end
-
-    local function makeSlider(parent, labelKey, settingKey, minV, maxV, order, decimals)
-        local row = Instance.new("Frame")
-        row.Size = UDim2.new(1, 0, 0, 52)
-        row.BackgroundColor3 = Theme.Card
-        row.BorderSizePixel = 0
-        row.LayoutOrder = order
-        row.Parent = parent
-        Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
-
-        local name = Instance.new("TextLabel")
-        name.Size = UDim2.new(0.6, 0, 0, 20)
-        name.Position = UDim2.new(0, 12, 0, 4)
-        name.BackgroundTransparency = 1
-        name.Text = Texts[Settings.Language][labelKey] or labelKey
-        name.TextColor3 = Theme.Text
-        name.Font = Enum.Font.GothamMedium
-        name.TextSize = 12
-        name.TextXAlignment = Enum.TextXAlignment.Left
-        name.Parent = row
-
-        local valLbl = Instance.new("TextLabel")
-        valLbl.Size = UDim2.new(0.35, 0, 0, 20)
-        valLbl.Position = UDim2.new(0.62, 0, 0, 4)
-        valLbl.BackgroundTransparency = 1
-        valLbl.TextColor3 = Theme.Accent
-        valLbl.Font = Enum.Font.GothamBold
-        valLbl.TextSize = 12
-        valLbl.TextXAlignment = Enum.TextXAlignment.Right
-        valLbl.Parent = row
-
-        local bar = Instance.new("Frame")
-        bar.Size = UDim2.new(1, -24, 0, 8)
-        bar.Position = UDim2.new(0, 12, 0, 32)
-        bar.BackgroundColor3 = Theme.Off
-        bar.BorderSizePixel = 0
-        bar.Parent = row
-        Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
-
-        local fill = Instance.new("Frame")
-        fill.BackgroundColor3 = Theme.Accent
-        fill.BorderSizePixel = 0
-        fill.Parent = bar
-        Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
-
-        local function fmt(v)
-            if decimals and decimals > 0 then
-                return string.format("%." .. tostring(decimals) .. "f", v)
-            end
-            return tostring(math.floor(v + 0.5))
-        end
-
-        local function setFromAlpha(a)
-            a = math.clamp(a, 0, 1)
-            local v = minV + (maxV - minV) * a
-            if not decimals or decimals == 0 then v = math.floor(v + 0.5) end
-            Settings[settingKey] = v
-            fill.Size = UDim2.new(a, 0, 1, 0)
-            valLbl.Text = fmt(v)
-            if settingKey == "FOV" or settingKey == "RageFOV" then updateFOV() end
-        end
-
-        local function refresh()
-            local v = tonumber(Settings[settingKey]) or minV
-            local a = (v - minV) / math.max(maxV - minV, 0.0001)
-            fill.Size = UDim2.new(math.clamp(a, 0, 1), 0, 1, 0)
-            valLbl.Text = fmt(v)
-            name.Text = Texts[Settings.Language][labelKey] or labelKey
-        end
-        sliderRefs[settingKey] = refresh
-        refresh()
-
-        local sliding = false
-        local function fromInput(x)
-            local absPos = bar.AbsolutePosition.X
-            local absSize = bar.AbsoluteSize.X
-            if absSize <= 0 then return end
-            setFromAlpha((x - absPos) / absSize)
-        end
-        bar.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                sliding = true
-                fromInput(input.Position.X)
-            end
-        end)
-        bar.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                sliding = false
-            end
-        end)
-        safeConnect(UserInputService.InputChanged, function(input)
-            if sliding and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                fromInput(input.Position.X)
-            end
-        end)
-        safeConnect(UserInputService.InputEnded, function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then sliding = false end
-        end)
-    end
-
-    -- COMBAT
-    makeSection(combatContent, "AIM SYSTEMS", 1)
-    makeToggle(combatContent, "Aim", "Aimbot", 2)
-    makeToggle(combatContent, "Silent", "SilentAim", 3)
-    makeToggle(combatContent, "Rage", "Rage", 4, Theme.Rage)
-    makeToggle(combatContent, "RageAuto", "RageAutoShoot", 5, Theme.Rage)
-    makeToggle(combatContent, "RageWB", "RageWallbang", 6, Theme.Rage)
-    makeToggle(combatContent, "RageCam", "RageCameraLock", 7, Theme.Rage)
-    makeToggle(combatContent, "Trigger", "Triggerbot", 8)
-    makeToggle(combatContent, "Sticky", "StickyAim", 9)
-    makeToggle(combatContent, "Wall", "WallCheck", 10)
-    makeToggle(combatContent, "Team", "IgnoreTeam", 11)
-    makeToggle(combatContent, "Friends", "IgnoreFriends", 12)
-    makeToggle(combatContent, "Fov", "ShowFOV", 13)
-
-    makeSection(combatContent, "SLIDERS", 20)
-    makeSlider(combatContent, "FOVSize", "FOV", 50, 700, 21, 0)
-    makeSlider(combatContent, "Smooth", "Smoothness", 0.05, 1, 22, 2)
-    makeSlider(combatContent, "Pred", "Prediction", 0, 0.4, 23, 2)
-    makeSlider(combatContent, "Hit", "HitChance", 1, 100, 24, 0)
-    makeSlider(combatContent, "MaxDist", "MaxDistance", 50, 1500, 25, 0)
-
-    makeSection(combatContent, "TARGET", 26)
-    local partRow = Instance.new("Frame")
-    partRow.Size = UDim2.new(1, 0, 0, 36)
-    partRow.BackgroundColor3 = Theme.Card
-    partRow.LayoutOrder = 27
-    partRow.Parent = combatContent
-    Instance.new("UICorner", partRow).CornerRadius = UDim.new(0, 8)
-    local partLabel = Instance.new("TextLabel")
-    partLabel.Size = UDim2.new(0.5, 0, 1, 0)
-    partLabel.Position = UDim2.new(0, 12, 0, 0)
-    partLabel.BackgroundTransparency = 1
-    partLabel.Text = Texts[Settings.Language].Part
-    partLabel.TextColor3 = Theme.Text
-    partLabel.Font = Enum.Font.GothamMedium
-    partLabel.TextSize = 13
-    partLabel.TextXAlignment = Enum.TextXAlignment.Left
-    partLabel.Parent = partRow
-    local partBtn = Instance.new("TextButton")
-    partBtn.Size = UDim2.new(0, 100, 0, 26)
-    partBtn.Position = UDim2.new(1, -110, 0.5, -13)
-    partBtn.BackgroundColor3 = Theme.Off
-    partBtn.Text = Settings.PartNames[Settings.Language][Settings.TargetPart] or Settings.TargetPart
-    partBtn.TextColor3 = Theme.Text
-    partBtn.Font = Enum.Font.GothamBold
-    partBtn.TextSize = 11
-    partBtn.Parent = partRow
-    Instance.new("UICorner", partBtn).CornerRadius = UDim.new(0, 6)
-    partBtn.MouseButton1Click:Connect(function()
-        partIndex = partIndex % #PART_CYCLE + 1
-        Settings.TargetPart = PART_CYCLE[partIndex]
-        partBtn.Text = Settings.PartNames[Settings.Language][Settings.TargetPart] or Settings.TargetPart
-    end)
-
-    -- VISUALS
-    makeSection(visualsContent, "ESP OPTIONS", 1)
-    makeToggle(visualsContent, "Esp", "ESP", 2)
-    makeToggle(visualsContent, "Boxes", "ESPBoxes", 3)
-    makeToggle(visualsContent, "Names", "ESPNames", 4)
-    makeToggle(visualsContent, "RGB", "ESPNameRGB", 4.5)
-    makeToggle(visualsContent, "TitleRGB", "TitleRGB", 4.6)
-    makeToggle(visualsContent, "Health", "ESPHealth", 5)
-    makeToggle(visualsContent, "Distance", "ESPDistance", 6)
-    makeToggle(visualsContent, "Tracers", "ESPTracers", 7)
-    makeToggle(visualsContent, "Chams", "ESPChams", 8)
-    makeToggle(visualsContent, "Skeleton", "ESPSkeleton", 9)
-    makeToggle(visualsContent, "Arrows", "ESPArrows", 10)
-    if not drawingAvailable then
-        local warnL = Instance.new("TextLabel")
-        warnL.Size = UDim2.new(1, 0, 0, 36)
-        warnL.BackgroundTransparency = 1
-        warnL.Text = "Este executor no tiene Drawing API.\nBoxes/Skeleton/Arrows no saldrán. Chams sí."
-        warnL.TextColor3 = Theme.Rage
-        warnL.Font = Enum.Font.Gotham
-        warnL.TextSize = 11
-        warnL.TextWrapped = true
-        warnL.LayoutOrder = 10.5
-        warnL.Parent = visualsContent
-    end
-
-    makeSection(visualsContent, "COLORS", 11)
-    local colorRow = Instance.new("Frame")
-    colorRow.Size = UDim2.new(1, 0, 0, 36)
-    colorRow.BackgroundColor3 = Theme.Card
-    colorRow.LayoutOrder = 12
-    colorRow.Parent = visualsContent
-    Instance.new("UICorner", colorRow).CornerRadius = UDim.new(0, 8)
-    local colorLabel = Instance.new("TextLabel")
-    colorLabel.Size = UDim2.new(0.5, 0, 1, 0)
-    colorLabel.Position = UDim2.new(0, 12, 0, 0)
-    colorLabel.BackgroundTransparency = 1
-    colorLabel.Text = Texts[Settings.Language].Color
-    colorLabel.TextColor3 = Theme.Text
-    colorLabel.Font = Enum.Font.GothamMedium
-    colorLabel.TextSize = 13
-    colorLabel.TextXAlignment = Enum.TextXAlignment.Left
-    colorLabel.Parent = colorRow
-    local colorBtn = Instance.new("TextButton")
-    colorBtn.Size = UDim2.new(0, 100, 0, 26)
-    colorBtn.Position = UDim2.new(1, -110, 0.5, -13)
-    colorBtn.BackgroundColor3 = Settings.ESPColors[Settings.ColorIndex]
-    colorBtn.Text = Settings.ColorNames[Settings.Language][Settings.ColorIndex] or "Color"
-    colorBtn.TextColor3 = Color3.new(0, 0, 0)
-    colorBtn.Font = Enum.Font.GothamBold
-    colorBtn.TextSize = 11
-    colorBtn.Parent = colorRow
-    Instance.new("UICorner", colorBtn).CornerRadius = UDim.new(0, 6)
-    colorBtn.MouseButton1Click:Connect(function()
-        Settings.ColorIndex = Settings.ColorIndex % #Settings.ESPColors + 1
-        colorBtn.BackgroundColor3 = Settings.ESPColors[Settings.ColorIndex]
-        colorBtn.Text = Settings.ColorNames[Settings.Language][Settings.ColorIndex]
-    end)
-
-    -- GUN MODS
-    makeSection(gunContent, "WEAPON MODS (client)", 1)
-    makeToggle(gunContent, "NoRecoil", "NoRecoil", 2)
-    makeToggle(gunContent, "Rapid", "RapidFire", 3)
-    makeToggle(gunContent, "AntiFlash", "AntiFlash", 4)
-    makeToggle(gunContent, "AntiSmoke", "AntiSmoke", 5)
-    local infoGun = Instance.new("TextLabel")
-    infoGun.Size = UDim2.new(1, 0, 0, 48)
-    infoGun.BackgroundTransparency = 1
-    infoGun.Text = "No Recoil: reduce el kick de cámara.\nRapid Fire: clicks extra al disparar.\nAnti Flash/Smoke: oculta efectos locales."
-    infoGun.TextColor3 = Theme.TextDim
-    infoGun.Font = Enum.Font.Gotham
-    infoGun.TextSize = 11
-    infoGun.TextWrapped = true
-    infoGun.LayoutOrder = 6
-    infoGun.Parent = gunContent
-
-    -- MISC
-    makeSection(miscContent, "CONFIG & KEYBINDS", 1)
-    makeButton(miscContent, Texts[Settings.Language].Save, 2, Theme.On, function()
-        if saveConfig() then
-            notify("YBTHU", "Config guardada", 2)
-        else
-            notify("YBTHU", "No se pudo guardar (executor sin writefile)", 3)
-        end
-    end)
-    makeButton(miscContent, Texts[Settings.Language].Load, 3, Theme.Accent, function()
-        if loadConfig() then
-            notify("YBTHU", "Config cargada", 2)
-            buildUI()
-        else
-            notify("YBTHU", "No hay config guardada", 2)
-        end
-    end)
-
-    local menuKeyRow = Instance.new("Frame")
-    menuKeyRow.Size = UDim2.new(1, 0, 0, 36)
-    menuKeyRow.BackgroundColor3 = Theme.Card
-    menuKeyRow.LayoutOrder = 4
-    menuKeyRow.Parent = miscContent
-    Instance.new("UICorner", menuKeyRow).CornerRadius = UDim.new(0, 8)
-    local menuKeyLabel = Instance.new("TextLabel")
-    menuKeyLabel.Size = UDim2.new(0.55, 0, 1, 0)
-    menuKeyLabel.Position = UDim2.new(0, 12, 0, 0)
-    menuKeyLabel.BackgroundTransparency = 1
-    menuKeyLabel.Text = Texts[Settings.Language].MenuKey
-    menuKeyLabel.TextColor3 = Theme.Text
-    menuKeyLabel.Font = Enum.Font.GothamMedium
-    menuKeyLabel.TextSize = 13
-    menuKeyLabel.TextXAlignment = Enum.TextXAlignment.Left
-    menuKeyLabel.Parent = menuKeyRow
-    local menuKeyBtn = Instance.new("TextButton")
-    menuKeyBtn.Size = UDim2.new(0, 110, 0, 26)
-    menuKeyBtn.Position = UDim2.new(1, -120, 0.5, -13)
-    menuKeyBtn.BackgroundColor3 = Theme.Off
-    menuKeyBtn.Text = enumName(Settings.MenuKey)
-    menuKeyBtn.TextColor3 = Theme.Text
-    menuKeyBtn.Font = Enum.Font.GothamBold
-    menuKeyBtn.TextSize = 11
-    menuKeyBtn.Parent = menuKeyRow
-    Instance.new("UICorner", menuKeyBtn).CornerRadius = UDim.new(0, 6)
-
-    local aimKeyRow = Instance.new("Frame")
-    aimKeyRow.Size = UDim2.new(1, 0, 0, 36)
-    aimKeyRow.BackgroundColor3 = Theme.Card
-    aimKeyRow.LayoutOrder = 5
-    aimKeyRow.Parent = miscContent
-    Instance.new("UICorner", aimKeyRow).CornerRadius = UDim.new(0, 8)
-    local aimKeyLabel = Instance.new("TextLabel")
-    aimKeyLabel.Size = UDim2.new(0.55, 0, 1, 0)
-    aimKeyLabel.Position = UDim2.new(0, 12, 0, 0)
-    aimKeyLabel.BackgroundTransparency = 1
-    aimKeyLabel.Text = Texts[Settings.Language].AimKeyBind
-    aimKeyLabel.TextColor3 = Theme.Text
-    aimKeyLabel.Font = Enum.Font.GothamMedium
-    aimKeyLabel.TextSize = 13
-    aimKeyLabel.TextXAlignment = Enum.TextXAlignment.Left
-    aimKeyLabel.Parent = aimKeyRow
-    local aimKeyBtn = Instance.new("TextButton")
-    aimKeyBtn.Size = UDim2.new(0, 110, 0, 26)
-    aimKeyBtn.Position = UDim2.new(1, -120, 0.5, -13)
-    aimKeyBtn.BackgroundColor3 = Theme.Off
-    aimKeyBtn.Text = enumName(Settings.AimKey)
-    aimKeyBtn.TextColor3 = Theme.Text
-    aimKeyBtn.Font = Enum.Font.GothamBold
-    aimKeyBtn.TextSize = 11
-    aimKeyBtn.Parent = aimKeyRow
-    Instance.new("UICorner", aimKeyBtn).CornerRadius = UDim.new(0, 6)
-
-    local waitingMenuKey, waitingAimKey = false, false
-    menuKeyBtn.MouseButton1Click:Connect(function()
-        waitingMenuKey = true
-        waitingAimKey = false
-        menuKeyBtn.Text = "..."
-        notify("YBTHU", "Presiona una tecla para el menú", 3)
-    end)
-    aimKeyBtn.MouseButton1Click:Connect(function()
-        waitingAimKey = true
-        waitingMenuKey = false
-        aimKeyBtn.Text = "..."
-        notify("YBTHU", "Presiona mouse o tecla para Aim", 3)
-    end)
-
-    safeConnect(UserInputService.InputBegan, function(input, gp)
-        if waitingMenuKey then
-            if input.KeyCode ~= Enum.KeyCode.Unknown then
-                Settings.MenuKey = input.KeyCode
-                menuKeyBtn.Text = enumName(Settings.MenuKey)
-                waitingMenuKey = false
-                notify("YBTHU", "Menú: " .. menuKeyBtn.Text, 2)
-            end
-            return
-        end
-        if waitingAimKey then
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 then
-                Settings.AimKey = input.UserInputType
-                aimKeyBtn.Text = enumName(Settings.AimKey)
-                waitingAimKey = false
-                notify("YBTHU", "Aim: " .. aimKeyBtn.Text, 2)
-            elseif input.KeyCode ~= Enum.KeyCode.Unknown then
-                Settings.AimKey = input.KeyCode
-                aimKeyBtn.Text = enumName(Settings.AimKey)
-                waitingAimKey = false
-                notify("YBTHU", "Aim: " .. aimKeyBtn.Text, 2)
-            end
-            return
-        end
-        if gp or not running then return end
-        if input.KeyCode == Settings.MenuKey then
-            Settings.Visible = not Settings.Visible
-            window.Visible = Settings.Visible
-            if Settings.Visible then logo.Visible = false end
-        end
-    end)
-
-    makeSection(miscContent, "SKIN & UTILITIES", 6)
-    makeToggle(miscContent, "Skin", "SkinChanger", 7)
-    makeButton(miscContent, "Siguiente Skin  (=)", 8, Theme.Card, function()
-        applyNextSkin()
-    end)
-    makeButton(miscContent, "Recargar Skins", 9, Theme.Card, function()
-        local n = collectSkins()
-        notify("YBTHU", "Skins encontradas: " .. tostring(n), 2)
-    end)
-
-    local langRow = Instance.new("Frame")
-    langRow.Size = UDim2.new(1, 0, 0, 36)
-    langRow.BackgroundColor3 = Theme.Card
-    langRow.LayoutOrder = 10
-    langRow.Parent = miscContent
-    Instance.new("UICorner", langRow).CornerRadius = UDim.new(0, 8)
-    local langLabel = Instance.new("TextLabel")
-    langLabel.Size = UDim2.new(0.5, 0, 1, 0)
-    langLabel.Position = UDim2.new(0, 12, 0, 0)
-    langLabel.BackgroundTransparency = 1
-    langLabel.Text = Texts[Settings.Language].Lang
-    langLabel.TextColor3 = Theme.Text
-    langLabel.Font = Enum.Font.GothamMedium
-    langLabel.TextSize = 13
-    langLabel.TextXAlignment = Enum.TextXAlignment.Left
-    langLabel.Parent = langRow
-    local langBtn = Instance.new("TextButton")
-    langBtn.Size = UDim2.new(0, 70, 0, 26)
-    langBtn.Position = UDim2.new(1, -80, 0.5, -13)
-    langBtn.BackgroundColor3 = Theme.Off
-    langBtn.Text = Settings.Language
-    langBtn.TextColor3 = Theme.Text
-    langBtn.Font = Enum.Font.GothamBold
-    langBtn.TextSize = 12
-    langBtn.Parent = langRow
-    Instance.new("UICorner", langBtn).CornerRadius = UDim.new(0, 6)
-    langBtn.MouseButton1Click:Connect(function()
-        Settings.Language = Settings.Language == "ES" and "EN" or "ES"
-        buildUI()
-    end)
-
-    makeButton(miscContent, Texts[Settings.Language].Disc, 11, Theme.Discord, function()
-        pcall(function()
-            setclipboard(DISCORD_URL)
-            notify("YBTHU", Texts[Settings.Language].Notify, 3)
-        end)
-    end)
-
-    makeButton(miscContent, Texts[Settings.Language].Kill, 12, Theme.Rage, function()
-        killScript()
-    end)
-
-    local credit = Instance.new("TextLabel")
-    credit.Size = UDim2.new(1, 0, 0, 28)
-    credit.BackgroundTransparency = 1
-    credit.Text = Texts[Settings.Language].Credit
-    credit.TextColor3 = Theme.TextDim
-    credit.Font = Enum.Font.Gotham
-    credit.TextSize = 11
-    credit.LayoutOrder = 13
-    credit.Parent = miscContent
-
-    switchTab("Combat")
-    print("[YBTHU BETA R3.4 RAGE] UI cargada")
+    Library:Notify("YBTHU BETA 2 + Linoria cargado", 5)
+    print("[YBTHU] LinoriaLib UI OK")
 end
 
-refreshUIFromSettings = function()
-    for _, fn in pairs(toggleRefs) do pcall(fn) end
-    for _, fn in pairs(sliderRefs) do pcall(fn) end
-end
+buildUI = buildLinoriaUI
+refreshUIFromSettings = function() end
 
-local uiOk, uiErr = pcall(buildUI)
+local uiOk, uiErr = pcall(buildLinoriaUI)
 if not uiOk then
-    warn("[YBTHU] Error al crear UI:", uiErr)
+    warn("[YBTHU] Error al crear UI Linoria:", uiErr)
     pcall(function()
         StarterGui:SetCore("SendNotification", {
             Title = "YBTHU ERROR UI",
@@ -2512,6 +2198,7 @@ if not uiOk then
         })
     end)
 end
+
 
 print("[YBTHU BETA R3.4 RAGE] Cargado correctamente")
 print("[YBTHU] Insert = menú  |  = = siguiente skin")
